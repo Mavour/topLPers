@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Meteora DLMM LP Leaderboard</title>
+    <link rel="stylesheet" href="/styles.css">
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hero">
+        <div>
+          <div class="eyebrow">Meteora DLMM</div>
+          <h1>LP Leaderboard</h1>
+          <p>PnL rankings computed from pool positions and position history.</p>
+        </div>
+        <button id="menuButton" class="icon-button" type="button" title="Options">...</button>
+      </section>
+
+      <section class="controls" aria-label="Filters">
+        <div class="segmented" role="group" aria-label="Mode">
+          <button class="active" type="button" data-mode="winners">Top winners</button>
+          <button type="button" data-mode="losers">Top losers</button>
+        </div>
+        <div class="segmented" role="group" aria-label="Range">
+          <button class="active" type="button" data-period="7">7d</button>
+          <button type="button" data-period="30">30d</button>
+          <button type="button" data-period="90">90d</button>
+          <button type="button" data-period="all">All</button>
+        </div>
+        <button id="refreshButton" class="refresh" type="button">Refresh</button>
+      </section>
+
+      <section class="pool-row" aria-label="Pool selection">
+        <input id="poolInput" type="text" spellcheck="false" placeholder="Pool address" aria-label="Pool address">
+        <button id="loadPoolButton" type="button">Load pool</button>
+      </section>
+
+      <nav class="tabs" aria-label="Views">
+        <button class="active" type="button" data-view="leaderboard">Leaderboard</button>
+        <button type="button" data-view="wallet">Wallet lookup</button>
+        <button type="button" data-view="pool">Pool PnL</button>
+      </nav>
+
+      <section id="status" class="status" aria-live="polite"></section>
+
+      <section class="stats" aria-label="Summary">
+        <article>
+          <span>Total PnL (top 20)</span>
+          <strong id="totalPnl">$0</strong>
+        </article>
+        <article>
+          <span>Avg PnL</span>
+          <strong id="avgPnl">$0</strong>
+        </article>
+        <article>
+          <span>Total fees earned</span>
+          <strong id="feesEarned">$0</strong>
+        </article>
+        <article>
+          <span>SOL price</span>
+          <strong id="solPrice">$0</strong>
+        </article>
+      </section>
+
+      <section id="leaderboardView" class="panel view active">
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Wallet</th>
+              <th>PnL SOL</th>
+              <th>PnL USD</th>
+              <th>Fees USD</th>
+              <th>Pos.</th>
+            </tr>
+          </thead>
+          <tbody id="leaderboardBody"></tbody>
+        </table>
+      </section>
+
+      <section id="walletView" class="panel view">
+        <div class="lookup">
+          <input id="walletInput" type="text" spellcheck="false" placeholder="Wallet address">
+          <button id="lookupButton" type="button">Lookup</button>
+        </div>
+        <div id="walletResult" class="result-card"></div>
+      </section>
+
+      <section id="poolView" class="panel view">
+        <div class="pool-summary">
+          <div>
+            <span>Pool</span>
+            <strong id="poolName">-</strong>
+          </div>
+          <div>
+            <span>Scanned positions</span>
+            <strong id="poolPositions">0</strong>
+          </div>
+          <div>
+            <span>Pool PnL</span>
+            <strong id="poolPnl">$0</strong>
+          </div>
+          <div>
+            <span>Fees</span>
+            <strong id="poolFees">$0</strong>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>

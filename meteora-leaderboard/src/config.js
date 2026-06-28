@@ -6,6 +6,7 @@ const intFromEnv = (name, fallback) => {
 };
 
 export const config = Object.freeze({
+  port: intFromEnv('PORT', 7777),
   defaultPool: process.env.DEFAULT_POOL || '5rCf1DM8LjKTw4YqhnoLcngyZYeNnQqztScTogYHAS6',
   maxPositions: intFromEnv('MAX_POSITIONS_PER_POOL', 100),
   concurrency: intFromEnv('CONCURRENCY', 5),

@@ -1,6 +1,6 @@
 # Meteora DLMM LP Leaderboard
 
-Standalone Node.js tool for building a Meteora DLMM LP leaderboard from pool positions. It does not use the old global `/leaderboard` endpoint because that endpoint is no longer publicly available.
+Standalone Node.js web dashboard and CLI for building a Meteora DLMM LP leaderboard from pool positions. It does not use the old global `/leaderboard` endpoint because that endpoint is no longer publicly available.
 
 ## How PnL Is Computed
 
@@ -15,6 +15,7 @@ Historical deposit and withdraw conversion uses the `price` field from Meteora e
 ## Requirements
 
 - Node.js 20+
+- PM2 for keeping the web dashboard online
 
 ## Installation
 
@@ -24,6 +25,25 @@ cp .env.example .env
 ```
 
 Edit `.env` if you want to override the default pool, concurrency, or RPC endpoint.
+
+## Web Dashboard
+
+```bash
+npm start
+```
+
+Default URL:
+
+```text
+http://localhost:7777
+```
+
+PM2 deployment:
+
+```bash
+pm2 start ecosystem.config.cjs
+pm2 save
+```
 
 ## CLI Usage
 
