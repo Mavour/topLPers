@@ -1,12 +1,11 @@
 const state = {
-  lastQuery: 'leaderboard',
+  lastQuery: 'wallet',
   lastParams: null,
   rows: [],
 };
 
 const els = {
   healthStatus: document.querySelector('#healthStatus'),
-  leaderboardForm: document.querySelector('#leaderboardForm'),
   walletForm: document.querySelector('#walletForm'),
   refreshButton: document.querySelector('#refreshButton'),
   messageBox: document.querySelector('#messageBox'),
@@ -124,35 +123,6 @@ function drawRange(rows = []) {
   }
 }
 
-function renderLeaderboard(payload) {
-  const rows = payload.data || [];
-  const totalPnl = rows.reduce((sum, row) => sum + (Number(row.pnlUsd) || 0), 0);
-  const totalFees = rows.reduce((sum, row) => sum + (Number(row.feesUsd) || 0), 0);
-  els.resultTitle.textContent = payload.mode === 'losers' ? 'Top LP Losers' : 'Top LP Winners';
-  els.resultScope.textContent = payload.pool ? `Pool ${fmtWallet(payload.pool)}` : 'Global';
-  els.resultsBody.innerHTML = rows.map((row, index) => `
-    <tr>
-      <td data-label="Rank">${index + 1}</td>
-      <td data-label="Wallet" class="mono" title="${row.wallet}">${fmtWallet(row.wallet)}</td>
-      <td data-label="PnL USD" class="${signClass(row.pnlUsd)}">${fmtUsd(row.pnlUsd)} <span class="neutral">(${fmtSol(row.pnlSol)})</span></td>
-      <td data-label="Fees USD">${fmtUsd(row.feesUsd)}</td>
-      <td data-label="Positions">${row.positions || 0}</td>
-    </tr>
-  `).join('');
-  setMetrics({
-    solPrice: payload.solPrice,
-    totalPnl,
-    totalFees,
-    updatedAt: payload.updatedAt,
-  });
-  drawRange(rows);
-  if (rows.length === 0) {
-    showMessage('No leaderboard rows returned.');
-  } else {
-    hideMessage();
-  }
-}
-
 function renderWallet(payload) {
   const portfolio = payload.data;
   const rows = portfolio.pools || [];
@@ -188,26 +158,6 @@ async function fetchJson(url) {
     throw new Error(payload.error || `Request failed with HTTP ${response.status}`);
   }
   return payload;
-}
-
-async function loadLeaderboard(formData) {
-  const params = new URLSearchParams();
-  params.set('mode', formData.get('mode') || 'winners');
-  params.set('period', formData.get('period') || '7');
-  params.set('limit', formData.get('limit') || '20');
-  const pool = String(formData.get('pool') || '').trim();
-  if (pool) {
-    if (!base58Re.test(pool)) {
-      throw new Error('Pool address is not a valid Solana base58 address.');
-    }
-    params.set('pool', pool);
-  }
-
-  state.lastQuery = 'leaderboard';
-  state.lastParams = params;
-  const payload = await fetchJson(`/api/leaderboard?${params.toString()}`);
-  state.rows = payload.data || [];
-  renderLeaderboard(payload);
 }
 
 async function loadWallet(formData) {
@@ -251,12 +201,6 @@ async function checkHealth() {
   }
 }
 
-els.leaderboardForm.addEventListener('submit', (event) => {
-  event.preventDefault();
-  const formData = new FormData(els.leaderboardForm);
-  runQuery(() => loadLeaderboard(formData));
-});
-
 els.walletForm.addEventListener('submit', (event) => {
   event.preventDefault();
   const formData = new FormData(els.walletForm);
@@ -269,9 +213,7 @@ els.refreshButton.addEventListener('click', () => {
     return;
   }
   runQuery(() => (
-    state.lastQuery === 'wallet'
-      ? fetchJson(`/api/wallet?${state.lastParams.toString()}`).then(renderWallet)
-      : fetchJson(`/api/leaderboard?${state.lastParams.toString()}`).then(renderLeaderboard)
+    fetchJson(`/api/wallet?${state.lastParams.toString()}`).then(renderWallet)
   ));
 });
 

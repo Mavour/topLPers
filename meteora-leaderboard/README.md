@@ -42,10 +42,7 @@ http://localhost:3000
 
 The page includes:
 
-- Global leaderboard query
-- Pool-scoped leaderboard query
-- Winners / losers mode
-- Period and row limit controls
+- Leaderboard unavailable notice when Meteora public leaderboard endpoints return 404
 - Wallet portfolio lookup
 - Responsive desktop table and mobile card-style rows
 

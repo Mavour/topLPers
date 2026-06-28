@@ -113,7 +113,7 @@ h2 {
 
 .control-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.4fr) minmax(280px, 0.8fr);
+  grid-template-columns: minmax(0, 0.9fr) minmax(320px, 1.1fr);
   gap: 16px;
   margin-bottom: 16px;
 }
@@ -128,10 +128,20 @@ h2 {
   box-shadow: var(--shadow);
 }
 
-.query-panel {
+.query-panel,
+.notice-panel {
   display: grid;
   gap: 14px;
+  min-width: 0;
+  width: 100%;
   padding: 18px;
+}
+
+.notice-panel p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.95rem;
+  line-height: 1.5;
 }
 
 .panel-heading {
@@ -389,9 +399,14 @@ td {
 }
 
 @media (max-width: 840px) {
+  body {
+    min-width: 0;
+  }
+
   .app-shell {
-    width: min(100% - 20px, 680px);
-    padding-top: 18px;
+    width: 100%;
+    max-width: none;
+    padding: 16px 12px 32px;
   }
 
   .topbar,
@@ -399,6 +414,21 @@ td {
   .results-heading {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .topbar {
+    gap: 12px;
+    margin-bottom: 14px;
+  }
+
+  h1 {
+    font-size: 2rem;
+    line-height: 1.05;
+  }
+
+  .status-pill,
+  button {
+    width: 100%;
   }
 
   .panel-heading span {
@@ -413,6 +443,25 @@ td {
 
   .field-row {
     grid-template-columns: 1fr;
+  }
+
+  .query-panel,
+  .notice-panel,
+  .visual-panel,
+  .results-heading {
+    padding: 14px;
+  }
+
+  .metrics-strip div {
+    padding: 12px 14px;
+  }
+
+  .visual-panel {
+    order: 2;
+  }
+
+  .results-panel {
+    order: 1;
   }
 
   table {
@@ -431,8 +480,11 @@ td {
   }
 
   tr {
+    margin: 0 12px 12px;
     padding: 12px 14px;
-    border-bottom: 1px solid var(--line);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: #ffffff;
   }
 
   td {
@@ -454,5 +506,9 @@ td {
   .mono {
     overflow-wrap: anywhere;
     text-align: right;
+  }
+
+  .message {
+    margin: 14px;
   }
 }
