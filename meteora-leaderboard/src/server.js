@@ -5,7 +5,7 @@ import { extname, join, normalize } from 'path';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 import { config } from './config.js';
-import { buildPoolLeaderboard } from './core/leaderboard.js';
+import { buildPoolLeaderboard, buildWalletPoolPnl } from './core/leaderboard.js';
 import { getTopPools, searchPool } from './core/poolScanner.js';
 import { isValidAddress } from './api/meteoraApi.js';
 
@@ -76,11 +76,9 @@ async function handleApi(req, res, url) {
     if (!isValidAddress(wallet)) {
       throw new Error('Valid wallet address is required');
     }
-    const result = await buildPoolLeaderboard(parsePool(url.searchParams.get('pool')), {
-      mode: 'winners',
+    const result = await buildWalletPoolPnl(parsePool(url.searchParams.get('pool')), wallet, {
       limit: parseLimit(url.searchParams.get('limit'), 200),
       concurrency: config.concurrency,
-      noCache: url.searchParams.get('refresh') === '1',
     });
     const row = result.rankings.find((item) => item.wallet === wallet);
     sendJson(res, 200, { ok: true, wallet, pool: result.pool, meta: result.meta, row: row || null });

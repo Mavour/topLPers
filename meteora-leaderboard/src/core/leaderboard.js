@@ -1,7 +1,7 @@
 import pLimit from 'p-limit';
 import { config } from '../config.js';
 import { get as cacheGet, set as cacheSet } from '../cache/memCache.js';
-import { getPool, getPoolPositions, firstDefined, numberFrom } from '../api/meteoraApi.js';
+import { getPool, getPoolPositions, getWalletPoolPositions, firstDefined, numberFrom } from '../api/meteoraApi.js';
 import { getTokenPrices, getSolPrice } from '../api/priceApi.js';
 import { computePositionPnl } from './pnlEngine.js';
 
@@ -109,8 +109,11 @@ function aggregateByWallet(positionPnls) {
       totalDepositedUsd: 0,
       totalWithdrawnUsd: 0,
       currentPositionUsd: 0,
+      currentXAmount: 0,
+      currentYAmount: 0,
       isActive: false,
       errors: 0,
+      valuationSource: null,
     };
 
     existing.pnlUsd += item.pnlUsd || 0;
@@ -120,9 +123,12 @@ function aggregateByWallet(positionPnls) {
     existing.totalDepositedUsd += item.totalDepositedUsd || 0;
     existing.totalWithdrawnUsd += item.totalWithdrawnUsd || 0;
     existing.currentPositionUsd += item.currentPositionUsd || 0;
+    existing.currentXAmount += item.currentXAmount || 0;
+    existing.currentYAmount += item.currentYAmount || 0;
     existing.positionCount += 1;
     existing.isActive = existing.isActive || Boolean(item.isActive);
     existing.errors += item.error ? 1 : 0;
+    existing.valuationSource = existing.valuationSource || item.valuationSource || null;
     wallets.set(item.owner, existing);
   }
 
@@ -192,6 +198,8 @@ export async function buildPoolLeaderboard(poolAddress, opts = {}) {
       totalDepositedUsd: 0,
       totalWithdrawnUsd: 0,
       currentPositionUsd: 0,
+      currentXAmount: 0,
+      currentYAmount: 0,
       unclaimedFeesUsd: 0,
       feesEarnedUsd: 0,
       depositCount: 0,
@@ -245,8 +253,11 @@ export async function getMultiPoolLeaderboard(poolAddresses, opts = {}) {
         totalDepositedUsd: 0,
         totalWithdrawnUsd: 0,
         currentPositionUsd: 0,
+        currentXAmount: 0,
+        currentYAmount: 0,
         isActive: false,
         errors: 0,
+        valuationSource: null,
       };
       existing.pnlUsd += row.pnlUsd || 0;
       existing.pnlSol += row.pnlSol || 0;
@@ -256,8 +267,11 @@ export async function getMultiPoolLeaderboard(poolAddresses, opts = {}) {
       existing.totalDepositedUsd += row.totalDepositedUsd || 0;
       existing.totalWithdrawnUsd += row.totalWithdrawnUsd || 0;
       existing.currentPositionUsd += row.currentPositionUsd || 0;
+      existing.currentXAmount += row.currentXAmount || 0;
+      existing.currentYAmount += row.currentYAmount || 0;
       existing.isActive = existing.isActive || row.isActive;
       existing.errors += row.errors || 0;
+      existing.valuationSource = existing.valuationSource || row.valuationSource || null;
       rows.set(row.wallet, existing);
     }
   }
@@ -276,6 +290,61 @@ export async function getMultiPoolLeaderboard(poolAddresses, opts = {}) {
       mode,
       totalWallets: rankings.length,
       poolCount: poolAddresses.length,
+      computedAt: Date.now(),
+      durationMs: Date.now() - startedAt,
+      solPrice,
+    },
+  };
+}
+
+export async function buildWalletPoolPnl(poolAddress, walletAddress, opts = {}) {
+  const startedAt = Date.now();
+  const limit = Math.max(1, Number.parseInt(opts.limit, 10) || config.maxPositions);
+  const concurrency = Math.max(1, Number.parseInt(opts.concurrency, 10) || config.concurrency);
+  const poolInfo = await getPool(poolAddress);
+  const positions = await getWalletPoolPositions(poolAddress, walletAddress, limit);
+  const summary = poolSummary(poolAddress, poolInfo);
+  const mints = [summary.tokenX.mint, summary.tokenY.mint].filter(Boolean);
+  const currentPrices = await getTokenPrices(mints);
+  const solPrice = await getSolPrice();
+  const limiter = pLimit(concurrency);
+
+  const settled = await Promise.allSettled(positions.map((row) => limiter(() => (
+    computePositionPnl(positionAddress(row), ownerAddress(row), poolInfo, currentPrices)
+  ))));
+  const positionPnls = settled.map((result, index) => {
+    if (result.status === 'fulfilled') {
+      return result.value;
+    }
+    return {
+      positionAddress: positionAddress(positions[index]),
+      owner: ownerAddress(positions[index]),
+      pnlUsd: 0,
+      pnlSol: 0,
+      totalDepositedUsd: 0,
+      totalWithdrawnUsd: 0,
+      currentPositionUsd: 0,
+      currentXAmount: 0,
+      currentYAmount: 0,
+      unclaimedFeesUsd: 0,
+      feesEarnedUsd: 0,
+      depositCount: 0,
+      withdrawCount: 0,
+      isActive: false,
+      computedAt: Date.now(),
+      error: result.reason?.message || String(result.reason),
+    };
+  });
+  const rankings = sortRankings(aggregateByWallet(positionPnls), 'winners');
+
+  return {
+    pool: summary,
+    rankings,
+    meta: {
+      mode: 'wallet',
+      wallet: walletAddress,
+      totalWallets: rankings.length,
+      totalPositions: positions.length,
       computedAt: Date.now(),
       durationMs: Date.now() - startedAt,
       solPrice,

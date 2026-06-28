@@ -7,6 +7,7 @@ import {
   numberFrom,
 } from '../api/meteoraApi.js';
 import { getSolPrice, SOL_MINT } from '../api/priceApi.js';
+import { getLivePositionState } from './livePositionValue.js';
 
 const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 const USDT_MINT = 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB';
@@ -60,6 +61,17 @@ function tokenYMint(poolInfo) {
     'token_y.mint',
     'tokenY.address',
   ]);
+}
+
+function tokenPoolPrice(poolInfo, side) {
+  const upper = side.toUpperCase();
+  const lower = side.toLowerCase();
+  return numberFrom(nestedFirst(poolInfo, [
+    `token_${lower}_price`,
+    `token${upper}Price`,
+    `token${upper}.price`,
+    `token_${lower}.price`,
+  ]), 0);
 }
 
 function amountFrom(row, keys) {
@@ -198,17 +210,23 @@ function zeroResult(positionAddress, owner, error = null) {
 
 export async function computePositionPnl(positionAddress, owner, poolInfo, currentPrices) {
   try {
-    const [deposits, withdraws, positionState, feeClaims] = await Promise.all([
+    const poolAddress = nestedFirst(poolInfo, ['address', 'poolAddress', 'pool_address']);
+    const [deposits, withdraws, fallbackPositionState, feeClaims, livePositionState] = await Promise.all([
       getPositionDeposits(positionAddress),
       getPositionWithdraws(positionAddress),
       getPositionState(positionAddress),
       getPositionFeeClaims(positionAddress),
+      poolAddress ? getLivePositionState(positionAddress, poolAddress, poolInfo).catch((error) => {
+        console.error(`[live] ${positionAddress}: ${error instanceof Error ? error.message : String(error)}`);
+        return null;
+      }) : null,
     ]);
+    const positionState = livePositionState || fallbackPositionState;
 
     const xMint = tokenXMint(poolInfo);
     const yMint = tokenYMint(poolInfo);
-    const priceX = currentPrices.get(xMint) || (isStablecoin(xMint) ? 1 : 0);
-    const priceY = currentPrices.get(yMint) || (isStablecoin(yMint) ? 1 : 0);
+    const priceX = currentPrices.get(xMint) || tokenPoolPrice(poolInfo, 'x') || (isStablecoin(xMint) ? 1 : 0);
+    const priceY = currentPrices.get(yMint) || tokenPoolPrice(poolInfo, 'y') || (isStablecoin(yMint) ? 1 : 0);
     const solPriceUsd = currentPrices.get(SOL_MINT) || await getSolPrice();
 
     const totalDepositedUsd = deposits.reduce((sum, event) => {
@@ -240,6 +258,9 @@ export async function computePositionPnl(positionAddress, owner, poolInfo, curre
       depositCount: deposits.length,
       withdrawCount: withdraws.length,
       isActive: amounts.x > 0 || amounts.y > 0,
+      currentXAmount: amounts.x,
+      currentYAmount: amounts.y,
+      valuationSource: livePositionState?.source || 'history-only',
       computedAt: Date.now(),
     };
   } catch (error) {

@@ -10,7 +10,7 @@ The tool fetches active positions for a pool, then fetches deposits, withdraws, 
 PnL = total_value_withdrawn - total_value_deposited + current_position_value + unclaimed_fees
 ```
 
-Historical deposit and withdraw conversion uses the `price` field from Meteora events when available. Current position value and unclaimed fees use Jupiter token prices. For non-stable pairs without historical USD prices, current prices are used as an approximation.
+Historical deposit and withdraw conversion uses Meteora position history USD fields when available. Current position value and unclaimed fees are decoded on-chain with the Meteora DLMM SDK, then converted to USD with Jupiter prices or Meteora pool token prices as fallback.
 
 ## Requirements
 
@@ -87,6 +87,7 @@ GET /pools?page=1&page_size=50
 GET /pools/{pool_address}
 GET /positions/{position_address}/historical
 POST Solana RPC getProgramAccounts for DLMM position discovery
+Meteora DLMM SDK getPosition for live LP value
 ```
 
 Token prices use:
@@ -99,7 +100,6 @@ GET https://api.jup.ag/price/v3?ids={mintAddress},{mintAddress2}
 
 - Historical PnL for non-stable pairs may be approximate when the event data does not include enough USD context.
 - Position discovery uses Solana RPC account filters because the public pool positions REST endpoint currently returns 404.
-- Current in-position value is zero when no public position state endpoint is available, so open positions can look more negative than their true live value.
 - Meteora rate limit is around 30 RPS. Keep `CONCURRENCY` between 3 and 8 for regular use.
 - Very large pools can take time to compute. Use `--limit 50` for faster scans.
 

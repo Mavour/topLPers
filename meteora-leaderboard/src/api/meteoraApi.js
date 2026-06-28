@@ -186,6 +186,25 @@ async function getPoolPositionsFromRpc(poolAddress, limit) {
     .slice(0, limit);
 }
 
+async function getWalletPoolPositionsFromRpc(poolAddress, walletAddress, limit) {
+  const result = await rpcRequest('getProgramAccounts', [
+    config.dlmmProgramId,
+    {
+      encoding: 'base64',
+      dataSlice: { offset: 0, length: 72 },
+      filters: [
+        { memcmp: { offset: 8, bytes: poolAddress } },
+        { memcmp: { offset: 40, bytes: walletAddress } },
+      ],
+    },
+  ]);
+
+  return (result || [])
+    .map(decodePositionAccount)
+    .filter(Boolean)
+    .slice(0, limit);
+}
+
 async function getPositionHistory(positionAddress) {
   return cached(`history:${positionAddress}`, 10 * 60_000, async () => {
     const raw = await request(`/positions/${encodeURIComponent(positionAddress)}/historical`);
@@ -209,6 +228,20 @@ export async function getPoolPositions(poolAddress, limit = 100) {
   const cappedLimit = Math.max(1, Math.min(Number.parseInt(limit, 10) || 100, 1000));
   return cached(`positions:${poolAddress}:${cappedLimit}`, 2 * 60_000, async () => {
     return getPoolPositionsFromRpc(poolAddress, cappedLimit);
+  });
+}
+
+export async function getWalletPoolPositions(poolAddress, walletAddress, limit = 100) {
+  if (!isValidAddress(poolAddress)) {
+    throw new Error(`Invalid pool address: ${poolAddress}`);
+  }
+  if (!isValidAddress(walletAddress)) {
+    throw new Error(`Invalid wallet address: ${walletAddress}`);
+  }
+
+  const cappedLimit = Math.max(1, Math.min(Number.parseInt(limit, 10) || 100, 1000));
+  return cached(`wallet-positions:${poolAddress}:${walletAddress}:${cappedLimit}`, 30_000, async () => {
+    return getWalletPoolPositionsFromRpc(poolAddress, walletAddress, cappedLimit);
   });
 }
 

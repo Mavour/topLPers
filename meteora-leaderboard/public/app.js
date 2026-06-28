@@ -125,7 +125,7 @@ function renderPool(result) {
 }
 
 async function loadLeaderboard(refresh = false) {
-  setStatus('Computing leaderboard from position history...');
+  setStatus('Computing leaderboard from position history and live DLMM positions...');
   el.refreshButton.disabled = true;
   try {
     const { result } = await api('/api/leaderboard', {
@@ -153,7 +153,7 @@ async function lookupWallet() {
     el.walletResult.textContent = 'Enter a wallet address.';
     return;
   }
-  setStatus('Computing wallet PnL from scanned positions...');
+  setStatus('Computing wallet PnL from position history and live DLMM value...');
   try {
     const { row, pool } = await api('/api/wallet', {
       wallet,
@@ -169,7 +169,7 @@ async function lookupWallet() {
     el.walletResult.innerHTML = `
       <strong>${shortAddress(row.wallet)}</strong><br>
       <span class="${pnlClass}">${usd(row.pnlUsd, 2)} / ${sol(row.pnlSol)}</span><br>
-      Fees: ${usd(row.feesEarnedUsd, 2).replace('+', '')} · Positions: ${row.positionCount}
+      Current LP: ${usd(row.currentPositionUsd, 2).replace('+', '')} · Fees: ${usd(row.feesEarnedUsd, 2).replace('+', '')} · Positions: ${row.positionCount}
     `;
     setStatus('');
   } catch (error) {
