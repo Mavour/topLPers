@@ -1,147 +1,114 @@
 # Meteora DLMM LP Leaderboard
 
-Responsive web dashboard for querying Meteora DLMM LP leaderboards and wallet portfolio summaries. The app is served by a standalone Node.js server and works on desktop and mobile browsers.
+Standalone Node.js tool for building a Meteora DLMM LP leaderboard from pool positions. It does not use the old global `/leaderboard` endpoint because that endpoint is no longer publicly available.
 
-The leaderboard endpoints originally requested for Meteora currently return `404` from Meteora, so the UI surfaces that error instead of fabricating data. Wallet portfolio endpoints from the current official Meteora DLMM Data API are wired and verified.
+## How PnL Is Computed
+
+The tool fetches active positions for a pool, then fetches deposits, withdraws, and current position state for each position. PnL is computed per position and aggregated by wallet:
+
+```text
+PnL = total_value_withdrawn - total_value_deposited + current_position_value + unclaimed_fees
+```
+
+Historical deposit and withdraw conversion uses the `price` field from Meteora events when available. Current position value and unclaimed fees use Jupiter token prices. For non-stable pairs without historical USD prices, current prices are used as an approximation.
+
+## Requirements
+
+- Node.js 20+
+- PM2 for long-running Telegram bot deployment
 
 ## Installation
 
 ```bash
-cd meteora-leaderboard
 npm install
 cp .env.example .env
 ```
 
-Requires Node.js 20+.
+Edit `.env` before running the Telegram bot.
 
-## Configuration
-
-Edit `.env`:
-
-```dotenv
-PORT=3000
-HELIUS_API_KEY=your_helius_key_here
-DEFAULT_PERIOD=7
-DEFAULT_LIMIT=20
-CACHE_TTL_SECONDS=300
-```
-
-`SOL_PRICE_OVERRIDE=150` can be set when Jupiter is unavailable or you want deterministic output.
-
-## Run The Website
+## CLI Usage
 
 ```bash
-npm start
+node src/cli.js
+node src/cli.js --losers
+node src/cli.js --pool 5rCf1DM8LjKTw4YqhnoLcngyZYeNnQqztScTogYHAS6
+node src/cli.js --pools addr1,addr2 --limit 50
+node src/cli.js --search "SOL-USDC"
+node src/cli.js --top-pools
+node src/cli.js --json > output.json
 ```
 
-Open:
+Supported options:
 
 ```text
-http://localhost:3000
+--pool <address>         Pool address
+--pools <addr,addr,...>  Multiple pool addresses
+--mode winners|losers    Sort order
+--losers                 Shortcut for --mode losers
+--limit <number>         Max positions to scan
+--top-pools              Show top pools by volume
+--search <query>         Search pool by name, symbol, mint, or address
+--json                   Output JSON
+--no-cache               Clear in-memory cache before run
+--help                   Show help
 ```
 
-The page includes:
-
-- Leaderboard unavailable notice when Meteora public leaderboard endpoints return 404
-- Wallet portfolio lookup
-- Responsive desktop table and mobile card-style rows
-
-## API Routes
-
-```text
-GET /api/health
-GET /api/leaderboard?mode=winners&period=7&limit=20
-GET /api/leaderboard?mode=losers&period=30&limit=10&pool=<poolAddress>
-GET /api/wallet?address=<walletAddress>
-```
-
-All API routes return JSON. Errors are returned as:
-
-```json
-{
-  "error": "message"
-}
-```
-
-## CLI
-
-The CLI remains available for local diagnostics:
+## Telegram Bot
 
 ```bash
-npm run cli -- --help
-npm run cli -- --wallet 11111111111111111111111111111111 --json
-```
-
-## PM2 Deployment
-
-```bash
-cd meteora-leaderboard
+node src/telegramBot.js
 pm2 start ecosystem.config.cjs
-pm2 logs meteora-leaderboard-web
-pm2 save
+pm2 logs meteora-lb-bot
 ```
 
-Set `PORT` in the PM2 environment or `.env` if you do not want port `3000`.
-
-## Verification
-
-```bash
-npm run test:api
-node --check src/server.js
-npm start
-```
-
-`scripts/test-api.js` checks:
-
-- 3 prompt-specified global leaderboard URL variants
-- 4 prompt-specified pool leaderboard URL variants
-- 3 current official wallet portfolio URL variants
-- 3 legacy wallet portfolio URL variants
-- Jupiter SOL price API
-
-## API Endpoints Reference
-
-Global leaderboard:
+Commands:
 
 ```text
-https://dlmm.datapi.meteora.ag/leaderboard?period={period}&page=0&limit={limit}
-https://dlmm.datapi.meteora.ag/portfolio/leaderboard?period={period}&limit={limit}
-https://dlmm-api.meteora.ag/position/leaderboard?period={period}&page=0&limit={limit}
+/lb [pool_address] [winners|losers]
+/leaderboard [pool_address] [winners|losers]
+/pool <pool_address> [winners|losers]
+/pools
+/search <query>
+/help
+/ping
 ```
 
-Pool leaderboard:
+## API Endpoints Used
+
+Meteora data requests use:
 
 ```text
-https://dlmm.datapi.meteora.ag/pool/{poolAddress}/positions?page=0&limit={limit}
-https://dlmm.datapi.meteora.ag/position/pool_position_pnl/{poolAddress}?page=0&limit={limit}
-https://dlmm-api.meteora.ag/pair/{poolAddress}/positions?page=0&limit={limit}
-https://dlmm-api.meteora.ag/position/pool_position_pnl/{poolAddress}?page=0&limit={limit}
+https://dlmm.datapi.meteora.ag
 ```
 
-Wallet portfolio:
+Endpoints:
 
 ```text
-https://dlmm.datapi.meteora.ag/portfolio/open?user={walletAddress}&page=1&page_size=50
-https://dlmm.datapi.meteora.ag/portfolio?user={walletAddress}&page=1&page_size=50
-https://dlmm.datapi.meteora.ag/portfolio/total?user={walletAddress}
-https://dlmm.datapi.meteora.ag/portfolio/{walletAddress}
-https://dlmm.datapi.meteora.ag/user/{walletAddress}/portfolio
-https://dlmm-api.meteora.ag/position/user_positions/{walletAddress}
+GET /pools?page=1&page_size=50
+GET /pools/{pool_address}
+GET /positions/{position_address}/historical
+POST Solana RPC getProgramAccounts for DLMM position discovery
 ```
 
-Jupiter price:
+Token prices use:
 
 ```text
-https://api.jup.ag/price/v3?ids=So11111111111111111111111111111111111111112
-https://price.jup.ag/v6/price?ids=So11111111111111111111111111111111111111112
+GET https://api.jup.ag/price/v3?ids={mintAddress},{mintAddress2}
 ```
+
+## Known Limitations
+
+- Historical PnL for non-stable pairs may be approximate when the event data does not include enough USD context.
+- Position discovery uses Solana RPC account filters because the public pool positions REST endpoint currently returns 404.
+- Current in-position value is zero when no public position state endpoint is available, so open positions can look more negative than their true live value.
+- Meteora rate limit is around 30 RPS. Keep `CONCURRENCY` between 3 and 8 for regular use.
+- Very large pools can take time to compute. Use `--limit 50` for faster scans.
 
 ## Troubleshooting
 
-`Leaderboard endpoints return 404`: The prompt-specified global and pool leaderboard URLs are kept in the client, but current Meteora responses return 404. Do not invent replacement leaderboard data without a verified endpoint.
-
-`AbortError`: The endpoint timed out. Meteora calls retry three times and fall back to other URLs.
-
-`429` or rate limit: Increase `CACHE_TTL_SECONDS`, reduce request frequency, or add upstream caching.
-
-`No rows returned`: The endpoint may be live but using an unexpected schema. Inspect `scripts/test-api.js` output and extend `normalizeRows()` aliases in `src/api/meteoraClient.js`.
+```text
+404 / not found      Pool or position address is wrong or unavailable.
+Rate limit / 429     Lower CONCURRENCY in .env.
+Timeout              Retry, lower --limit, or increase request timeout in src/config.js.
+Empty prices         Jupiter price API failed; PnL may show zeros for unknown token prices.
+```

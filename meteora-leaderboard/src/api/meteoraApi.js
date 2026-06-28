@@ -1,0 +1,295 @@
+import { config } from '../config.js';
+import { get as cacheGet, set as cacheSet } from '../cache/memCache.js';
+
+const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+
+const sleep = (ms) => new Promise((resolve) => {
+  setTimeout(resolve, ms);
+});
+
+export const BASE58_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+
+export function isValidAddress(value) {
+  return typeof value === 'string' && BASE58_RE.test(value.trim());
+}
+
+export function numberFrom(value, fallback = 0) {
+  const parsed = Number.parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+export function firstDefined(row, keys) {
+  for (const key of keys) {
+    if (row?.[key] !== undefined && row?.[key] !== null && row?.[key] !== '') {
+      return row[key];
+    }
+  }
+  return null;
+}
+
+export function normalizeArray(raw, preferredKeys = []) {
+  if (Array.isArray(raw)) {
+    return raw;
+  }
+
+  for (const key of preferredKeys) {
+    if (Array.isArray(raw?.[key])) {
+      return raw[key];
+    }
+  }
+
+  for (const key of ['data', 'items', 'results', 'events', 'positions', 'pairs', 'pools']) {
+    if (Array.isArray(raw?.[key])) {
+      return raw[key];
+    }
+    if (Array.isArray(raw?.data?.[key])) {
+      return raw.data[key];
+    }
+  }
+
+  return [];
+}
+
+function base58Encode(bytes) {
+  let value = 0n;
+  for (const byte of bytes) {
+    value = (value << 8n) + BigInt(byte);
+  }
+
+  let encoded = '';
+  while (value > 0n) {
+    const mod = Number(value % 58n);
+    encoded = BASE58_ALPHABET[mod] + encoded;
+    value /= 58n;
+  }
+
+  for (const byte of bytes) {
+    if (byte === 0) {
+      encoded = BASE58_ALPHABET[0] + encoded;
+    } else {
+      break;
+    }
+  }
+
+  return encoded || BASE58_ALPHABET[0];
+}
+
+async function request(path, params = {}) {
+  const url = new URL(`${config.apiBase}${path}`);
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && value !== '') {
+      url.searchParams.set(key, String(value));
+    }
+  }
+
+  let lastError = null;
+
+  for (let attempt = 1; attempt <= config.retryAttempts; attempt += 1) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), config.requestTimeoutMs);
+
+    try {
+      const response = await fetch(url, {
+        headers: { accept: 'application/json' },
+        signal: controller.signal,
+      });
+      const body = await response.text();
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${body.slice(0, 200)}`);
+      }
+
+      return body ? JSON.parse(body) : null;
+    } catch (error) {
+      lastError = error;
+      if (attempt < config.retryAttempts) {
+        console.error(`Retry ${attempt}/${config.retryAttempts}: ${url}`);
+        await sleep(config.retryBaseDelayMs * 2 ** (attempt - 1));
+      }
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  throw new Error(`Meteora request failed for ${url}: ${lastError?.message || 'unknown error'}`);
+}
+
+async function rpcRequest(method, params) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), config.requestTimeoutMs);
+
+  try {
+    const response = await fetch(config.solanaRpcUrl, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+      signal: controller.signal,
+    });
+    const body = await response.text();
+
+    if (!response.ok) {
+      throw new Error(`RPC HTTP ${response.status}: ${body.slice(0, 200)}`);
+    }
+
+    const parsed = body ? JSON.parse(body) : {};
+    if (parsed.error) {
+      throw new Error(`RPC ${parsed.error.code}: ${parsed.error.message}`);
+    }
+    return parsed.result;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function cached(key, ttlMs, loader) {
+  const existing = cacheGet(key);
+  if (existing !== null) {
+    return existing;
+  }
+
+  const value = await loader();
+  cacheSet(key, value, ttlMs);
+  return value;
+}
+
+function decodePositionAccount(row) {
+  const encoded = row?.account?.data?.[0];
+  if (!encoded) {
+    return null;
+  }
+
+  const bytes = Buffer.from(encoded, 'base64');
+  if (bytes.length < 72) {
+    return null;
+  }
+
+  return {
+    position: row.pubkey,
+    owner: base58Encode(bytes.subarray(40, 72)),
+    source: 'solana-rpc',
+  };
+}
+
+async function getPoolPositionsFromRpc(poolAddress, limit) {
+  const result = await rpcRequest('getProgramAccounts', [
+    config.dlmmProgramId,
+    {
+      encoding: 'base64',
+      dataSlice: { offset: 0, length: 72 },
+      filters: [{ memcmp: { offset: 8, bytes: poolAddress } }],
+    },
+  ]);
+
+  return (result || [])
+    .map(decodePositionAccount)
+    .filter(Boolean)
+    .slice(0, limit);
+}
+
+async function getPositionHistory(positionAddress) {
+  return cached(`history:${positionAddress}`, 10 * 60_000, async () => {
+    const raw = await request(`/positions/${encodeURIComponent(positionAddress)}/historical`);
+    return normalizeArray(raw, ['events']);
+  });
+}
+
+export async function getPool(poolAddress) {
+  if (!isValidAddress(poolAddress)) {
+    throw new Error(`Invalid pool address: ${poolAddress}`);
+  }
+
+  return cached(`pool:${poolAddress}`, 5 * 60_000, () => request(`/pools/${encodeURIComponent(poolAddress)}`));
+}
+
+export async function getPoolPositions(poolAddress, limit = 100) {
+  if (!isValidAddress(poolAddress)) {
+    throw new Error(`Invalid pool address: ${poolAddress}`);
+  }
+
+  const cappedLimit = Math.max(1, Math.min(Number.parseInt(limit, 10) || 100, 1000));
+  return cached(`positions:${poolAddress}:${cappedLimit}`, 2 * 60_000, async () => {
+    return getPoolPositionsFromRpc(poolAddress, cappedLimit);
+  });
+}
+
+export async function getPositionDeposits(positionAddress) {
+  if (!isValidAddress(positionAddress)) {
+    throw new Error(`Invalid position address: ${positionAddress}`);
+  }
+
+  return cached(`deposits:${positionAddress}`, 10 * 60_000, async () => {
+    const events = await getPositionHistory(positionAddress);
+    return events.filter((event) => String(event.eventType || event.type || '').toLowerCase() === 'add');
+  });
+}
+
+export async function getPositionWithdraws(positionAddress) {
+  if (!isValidAddress(positionAddress)) {
+    throw new Error(`Invalid position address: ${positionAddress}`);
+  }
+
+  return cached(`withdraws:${positionAddress}`, 10 * 60_000, async () => {
+    const events = await getPositionHistory(positionAddress);
+    return events.filter((event) => String(event.eventType || event.type || '').toLowerCase() === 'remove');
+  });
+}
+
+export async function getPositionFeeClaims(positionAddress) {
+  if (!isValidAddress(positionAddress)) {
+    throw new Error(`Invalid position address: ${positionAddress}`);
+  }
+
+  return cached(`fee-claims:${positionAddress}`, 10 * 60_000, async () => {
+    const events = await getPositionHistory(positionAddress);
+    return events.filter((event) => String(event.eventType || event.type || '').toLowerCase() === 'claim_fee');
+  });
+}
+
+export async function getPositionState(positionAddress) {
+  if (!isValidAddress(positionAddress)) {
+    throw new Error(`Invalid position address: ${positionAddress}`);
+  }
+
+  return cached(`position:${positionAddress}`, 60_000, async () => ({}));
+}
+
+export async function getAllPoolsPage(page = 0, limit = 50) {
+  const safePage = Math.max(0, Number.parseInt(page, 10) || 0);
+  const safeLimit = Math.max(1, Math.min(Number.parseInt(limit, 10) || 50, 100));
+  return cached(`pools:${safePage}:${safeLimit}`, 5 * 60_000, async () => {
+    const raw = await request('/pools', { page: safePage + 1, page_size: safeLimit });
+    return normalizeArray(raw, ['data', 'pools']);
+  });
+}
+
+function poolSearchText(pool) {
+  return [
+    pool?.address,
+    pool?.pubkey,
+    pool?.pair_address,
+    pool?.name,
+    pool?.symbol,
+    pool?.token_x?.address,
+    pool?.token_y?.address,
+    pool?.token_x?.symbol,
+    pool?.token_y?.symbol,
+    pool?.tokenX?.symbol,
+    pool?.tokenY?.symbol,
+    pool?.token_x_mint,
+    pool?.token_y_mint,
+    pool?.mint_x,
+    pool?.mint_y,
+  ].filter(Boolean).join(' ').toLowerCase();
+}
+
+export async function searchPools(query, limit = 20) {
+  const needle = String(query || '').trim().toLowerCase();
+  if (!needle) {
+    return [];
+  }
+
+  const pools = await getAllPoolsPage(0, 100);
+  return pools
+    .filter((pool) => poolSearchText(pool).includes(needle))
+    .slice(0, Math.max(1, Number.parseInt(limit, 10) || 20));
+}

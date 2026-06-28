@@ -1,140 +1,190 @@
-const COLORS = {
-  green: '\x1b[32m',
-  red: '\x1b[31m',
-  gray: '\x1b[90m',
-  yellow: '\x1b[33m',
-  cyan: '\x1b[36m',
-  bold: '\x1b[1m',
-  reset: '\x1b[0m',
-};
+const ANSI_RE = /\x1b\[[0-9;]*m/g;
 
-const rankLabels = ['🥇', '🥈', '🥉'];
-
-function colorize(str, color) {
-  return `${COLORS[color] || ''}${str}${COLORS.reset}`;
-}
+const green = (str) => `\x1b[32m${str}\x1b[0m`;
+const red = (str) => `\x1b[31m${str}\x1b[0m`;
+const yellow = (str) => `\x1b[33m${str}\x1b[0m`;
+const cyan = (str) => `\x1b[36m${str}\x1b[0m`;
+const gray = (str) => `\x1b[90m${str}\x1b[0m`;
+const bold = (str) => `\x1b[1m${str}\x1b[0m`;
 
 function stripAnsi(str) {
-  return String(str).replace(/\x1b\[[0-9;]*m/g, '');
+  return String(str).replace(ANSI_RE, '');
 }
 
-function pad(str, len) {
+function padR(str, len) {
   const value = String(str);
-  const visible = stripAnsi(value).length;
-  return visible >= len ? value : `${value}${' '.repeat(len - visible)}`;
+  return value + ' '.repeat(Math.max(0, len - stripAnsi(value).length));
 }
 
-function fmtWallet(addr) {
-  if (!addr) {
-    return '-';
-  }
-  return addr.length > 12 ? `${addr.slice(0, 6)}...${addr.slice(-4)}` : addr;
+function padL(str, len) {
+  const value = String(str);
+  return ' '.repeat(Math.max(0, len - stripAnsi(value).length)) + value;
 }
 
-function suffix(value) {
-  const abs = Math.abs(value);
+function shortWallet(address) {
+  const value = String(address || '-');
+  return value.length > 13 ? `${value.slice(0, 6)}...${value.slice(-4)}` : value;
+}
+
+function fmtCompact(value) {
+  const abs = Math.abs(value || 0);
   if (abs >= 1_000_000) {
     return `${(value / 1_000_000).toFixed(2)}M`;
   }
   if (abs >= 1_000) {
     return `${(value / 1_000).toFixed(2)}K`;
   }
-  return value.toFixed(2);
+  return (value || 0).toFixed(2);
 }
 
-function signed(value, prefix = '') {
-  return `${value > 0 ? '+' : ''}${prefix}${suffix(value)}`;
+function fmtUsd(value, signed = false) {
+  const numeric = Number.isFinite(value) ? value : 0;
+  const sign = signed && numeric > 0 ? '+' : '';
+  return `${sign}$${Math.abs(numeric).toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`.replace('$-', '-$');
 }
 
-function colorBySign(value, text) {
+function fmtSignedUsd(value) {
+  const formatted = `${value >= 0 ? '+' : '-'}$${Math.abs(value || 0).toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
   if (value > 0) {
-    return colorize(text, 'green');
+    return green(formatted);
   }
   if (value < 0) {
-    return colorize(text, 'red');
+    return red(formatted);
   }
-  return colorize(text, 'gray');
+  return gray(formatted);
 }
 
-function fmtUsd(n, colored = false) {
-  const value = Number.isFinite(Number(n)) ? Number(n) : 0;
-  const text = signed(value, '$');
-  return colored ? colorBySign(value, text) : text;
+function fmtSol(value) {
+  const sign = value > 0 ? '+' : value < 0 ? '-' : '';
+  return `${sign}${Math.abs(value || 0).toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })} SOL`;
 }
 
-function fmtSol(n, colored = false) {
-  const value = Number.isFinite(Number(n)) ? Number(n) : 0;
-  const text = `${value > 0 ? '+' : ''}${value.toFixed(4)} SOL`;
-  return colored ? colorBySign(value, text) : text;
+function fmtFeeRate(value) {
+  const numeric = Number.parseFloat(value) || 0;
+  return `${numeric.toFixed(2)}%`;
 }
 
-function periodLabel(period) {
-  if (String(period).toLowerCase() === 'all') {
-    return 'All time';
+function rankLabel(rank) {
+  if (rank === 1) return '#1';
+  if (rank === 2) return '#2';
+  if (rank === 3) return '#3';
+  return String(rank).padStart(2, '0');
+}
+
+function tableLine(width = 96) {
+  return gray('-'.repeat(width));
+}
+
+export function printLeaderboard(lbResult) {
+  const rows = lbResult.rankings || [];
+  const pool = lbResult.pool || {};
+  const meta = lbResult.meta || {};
+  const modeLabel = meta.mode === 'losers' ? 'TOP LOSERS' : 'TOP WINNERS';
+  const totalPnl = rows.reduce((sum, row) => sum + (row.pnlUsd || 0), 0);
+  const avgPnl = rows.length > 0 ? totalPnl / rows.length : 0;
+
+  process.stdout.write(`${bold(pool.name || 'Meteora pool')} ${gray(pool.address || '')}\n`);
+  process.stdout.write(
+    `${cyan(modeLabel)} | TVL: $${fmtCompact(pool.tvlUsd)} | Vol 24h: $${fmtCompact(pool.volumeUsd24h)} | Fee: ${fmtFeeRate(pool.feeRate)} | Wallets: ${rows.length}\n`,
+  );
+  process.stdout.write(`${tableLine()}\n`);
+  process.stdout.write(
+    `${padR('#', 5)} ${padR('Wallet', 17)} ${padL('PnL USD', 16)} ${padL('PnL SOL', 16)} ${padL('Fees', 14)} ${padL('Pos', 5)}\n`,
+  );
+  process.stdout.write(`${tableLine()}\n`);
+
+  for (const row of rows) {
+    process.stdout.write([
+      padR(rankLabel(row.rank), 5),
+      padR(shortWallet(row.wallet), 17),
+      padL(fmtSignedUsd(row.pnlUsd || 0), 16),
+      padL(fmtSol(row.pnlSol || 0), 16),
+      padL(fmtUsd(row.feesEarnedUsd || 0), 14),
+      padL(row.positionCount || 0, 5),
+    ].join(' ') + '\n');
   }
-  return `Last ${String(period).replace('d', '')} days`;
+
+  process.stdout.write(`${tableLine()}\n`);
+  process.stdout.write(
+    `Total PnL: ${fmtSignedUsd(totalPnl)} | Avg: ${fmtSignedUsd(avgPnl)} | SOL: $${(meta.solPrice || 0).toFixed(2)} | ${((meta.durationMs || 0) / 1000).toFixed(1)}s\n`,
+  );
 }
 
-function rankLabel(index) {
-  return rankLabels[index] || String(index + 1);
+export function printPoolInfo(pool) {
+  process.stdout.write([
+    padR(pool.name || 'Unknown', 24),
+    padR(shortWallet(pool.address), 16),
+    padL(`$${fmtCompact(pool.tvlUsd || 0)}`, 12),
+    padL(`$${fmtCompact(pool.volumeUsd24h || 0)}`, 12),
+    padL(fmtFeeRate(pool.feeRate || 0), 8),
+  ].join(' ') + '\n');
 }
 
-export function printLeaderboard(rows, opts = {}, solPrice = 150) {
-  const { mode = 'winners', limit = rows.length, period = '7', pool = null } = opts;
-  const title = mode === 'losers' ? '📉 TOP LP LOSERS' : '🏆 TOP LP WINNERS';
-  const scope = pool ? `Pool ${fmtWallet(pool)}` : 'Global';
-  const line = '─'.repeat(96);
-  const totalPnl = rows.reduce((total, row) => total + (row.pnlUsd || 0), 0);
-  const totalFees = rows.reduce((total, row) => total + (row.feesUsd || 0), 0);
-  const avgPnl = rows.length ? totalPnl / rows.length : 0;
-
-  const output = [
-    `${colorize(title, mode === 'losers' ? 'red' : 'green')} - ${scope} (${periodLabel(period)})`,
-    line,
-    `${pad('#', 5)}${pad('Wallet', 18)}${pad('PnL SOL', 18)}${pad('PnL USD', 18)}${pad('Fees USD', 16)}Positions`,
-    line,
-    ...rows.map((row, index) => [
-      pad(rankLabel(index), 5),
-      pad(fmtWallet(row.wallet), 18),
-      pad(fmtSol(row.pnlSol, true), 18),
-      pad(fmtUsd(row.pnlUsd, true), 18),
-      pad(fmtUsd(row.feesUsd, false), 16),
-      row.positions || 0,
-    ].join('')),
-    line,
-    'Summary Stats:',
-    `  Wallets shown  : ${rows.length} of ${limit} requested`,
-    `  Total PnL USD  : ${fmtUsd(totalPnl, true)}`,
-    `  Avg PnL USD    : ${fmtUsd(avgPnl, true)}`,
-    `  Total Fees USD : ${fmtUsd(totalFees, false)}`,
-    `  SOL Price      : $${Number(solPrice).toFixed(2)}`,
-  ];
-
-  process.stdout.write(`${output.join('\n')}\n`);
+export function printPools(pools) {
+  process.stdout.write(`${padR('Pool', 24)} ${padR('Address', 16)} ${padL('TVL', 12)} ${padL('Vol 24h', 12)} ${padL('Fee', 8)}\n`);
+  process.stdout.write(`${tableLine(78)}\n`);
+  for (const pool of pools) {
+    printPoolInfo(pool);
+  }
 }
 
-export function printWalletPortfolio(portfolio, solPrice = 150) {
-  const line = '─'.repeat(88);
-  const rows = portfolio.pools || [];
-  const output = [
-    `${colorize('Wallet Portfolio', 'cyan')} ${fmtWallet(portfolio.wallet)}`,
-    line,
-    `Total PnL USD  : ${fmtUsd(portfolio.totalPnlUsd, true)}`,
-    `Total PnL SOL  : ${fmtSol(portfolio.totalPnlSol, true)}`,
-    `Total Fees USD : ${fmtUsd(portfolio.totalFeesUsd, false)}`,
-    `Open Positions : ${portfolio.openPositions}`,
-    `SOL Price      : $${Number(solPrice).toFixed(2)}`,
-    line,
-    `${pad('Pool', 24)}${pad('PnL USD', 16)}${pad('Fees USD', 16)}${pad('TVL USD', 16)}Range`,
-    line,
-    ...rows.map((row) => [
-      pad(row.name || fmtWallet(row.poolAddress), 24),
-      pad(fmtUsd(row.pnlUsd, true), 16),
-      pad(fmtUsd(row.feesUsd, false), 16),
-      pad(fmtUsd(row.tvlUsd, false), 16),
-      row.inRange ? colorize('IN', 'green') : colorize('OOR', 'yellow'),
-    ].join('')),
-  ];
-
-  process.stdout.write(`${output.join('\n')}\n`);
+export function printProgress(done, total, label = 'Computing PnL') {
+  const width = 20;
+  const filled = total > 0 ? Math.round((done / total) * width) : 0;
+  const bar = `${'#'.repeat(filled)}${'-'.repeat(Math.max(0, width - filled))}`;
+  process.stderr.write(`\r${label}... [${bar}] ${done}/${total}`);
+  if (done >= total) {
+    process.stderr.write('\n');
+  }
 }
+
+export function printError(message) {
+  process.stderr.write(`${red(`Error: ${message}`)}\n`);
+}
+
+export function printBanner({ pool, pools, mode, limit, concurrency }) {
+  process.stderr.write('lpGoose Leaderboard v2.0.0 - Self-computed PnL\n');
+  process.stderr.write(`   Pool: ${pool || pools || 'default'}\n`);
+  process.stderr.write(`   Mode: ${mode} | Limit: ${limit} | Concurrency: ${concurrency}\n`);
+}
+
+export function printHelp() {
+  process.stdout.write(`Meteora DLMM LP Leaderboard v2.0.0
+
+Usage:
+  node src/cli.js [options]
+
+Options:
+  --pool <address>         Pool address (default: DEFAULT_POOL)
+  --pools <addr,addr>      Multiple pool addresses
+  --mode winners|losers    Sort order (default: winners)
+  --losers                 Shortcut for --mode losers
+  --limit <number>         Max positions to scan
+  --top-pools              Show top pools by volume
+  --search <query>         Search pool by symbol, name, mint, or address
+  --wallet <address>       Reserved for a future wallet view
+  --json                   Output JSON to stdout
+  --no-cache               Clear in-memory cache before running
+  --help                   Show this help
+  --verbose                Print debug logs to stderr
+
+Examples:
+  node src/cli.js
+  node src/cli.js --losers
+  node src/cli.js --pool 5rCf1DM8LjKTw4YqhnoLcngyZYeNnQqztScTogYHAS6
+  node src/cli.js --search SOL-USDC
+  node src/cli.js --top-pools
+  node src/cli.js --json
+`);
+}
+
+export { green, red, yellow, cyan, gray, bold, stripAnsi, padR, padL };

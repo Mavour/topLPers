@@ -1,46 +1,44 @@
+import 'dotenv/config';
 import { config } from './config.js';
-import { getSolPrice } from './api/jupiterPrice.js';
-import { isValidAddress } from './api/meteoraClient.js';
-import { getLeaderboard } from './core/leaderboard.js';
-import { getWalletPortfolio } from './core/walletPortfolio.js';
-import { printLeaderboard, printWalletPortfolio } from './formatters/cliFormatter.js';
+import { clear as clearCache } from './cache/memCache.js';
+import { isValidAddress } from './api/meteoraApi.js';
+import { buildPoolLeaderboard, getMultiPoolLeaderboard } from './core/leaderboard.js';
+import { getTopPools, searchPool } from './core/poolScanner.js';
+import {
+  printBanner,
+  printError,
+  printHelp,
+  printLeaderboard,
+  printPools,
+  printProgress,
+} from './formatters/cliFormatter.js';
 
-const red = (value) => `\x1b[31m${value}\x1b[0m`;
+function parsePositiveInt(value, fallback) {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
 
-function printHelp() {
-  process.stdout.write(`Meteora DLMM LP Leaderboard v1.0.0
-
-Usage:
-  node src/cli.js [options]
-
-Options:
-  --mode <winners|losers>   Leaderboard mode
-  --winners                 Shortcut for --mode winners
-  --losers                  Shortcut for --mode losers
-  --pool <address>          Query a specific Meteora DLMM pool
-  --wallet <address>        Query a wallet portfolio
-  --period <7|30|90|all>    Leaderboard period
-  --limit <number>          Max rows to show
-  --json                    Output machine-readable JSON
-  --help                    Show this help
-
-Examples:
-  node src/cli.js
-  node src/cli.js --losers --period 30 --limit 10
-  node src/cli.js --pool ARwi1S4DaiTG5DX7S4M4ZsrXqpMD1MrTmbu9ue2tpmEq
-  node src/cli.js --wallet 11111111111111111111111111111111 --json
-`);
+function requireValue(arg, value) {
+  if (!value || value.startsWith('--')) {
+    throw new Error(`Missing value for ${arg}`);
+  }
+  return value;
 }
 
 function parseArgs(argv) {
   const opts = {
-    mode: 'winners',
     pool: null,
+    pools: null,
+    mode: 'winners',
+    limit: config.maxPositions,
+    topPools: false,
+    search: null,
     wallet: null,
-    period: config.defaultPeriod,
-    limit: config.defaultLimit,
     json: false,
+    noCache: false,
     help: false,
+    verbose: false,
+    concurrency: config.concurrency,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -51,25 +49,31 @@ function parseArgs(argv) {
       opts.help = true;
     } else if (arg === '--json') {
       opts.json = true;
-    } else if (arg === '--winners') {
-      opts.mode = 'winners';
+    } else if (arg === '--no-cache') {
+      opts.noCache = true;
+    } else if (arg === '--verbose') {
+      opts.verbose = true;
     } else if (arg === '--losers') {
       opts.mode = 'losers';
     } else if (arg === '--mode') {
-      opts.mode = String(next || '').toLowerCase() === 'losers' ? 'losers' : 'winners';
+      opts.mode = requireValue(arg, next).toLowerCase();
       index += 1;
     } else if (arg === '--pool') {
-      opts.pool = next || null;
+      opts.pool = requireValue(arg, next);
       index += 1;
-    } else if (arg === '--wallet') {
-      opts.wallet = next || null;
-      index += 1;
-    } else if (arg === '--period') {
-      opts.period = next || config.defaultPeriod;
+    } else if (arg === '--pools') {
+      opts.pools = requireValue(arg, next).split(',').map((value) => value.trim()).filter(Boolean);
       index += 1;
     } else if (arg === '--limit') {
-      const parsed = Number.parseInt(next, 10);
-      opts.limit = Number.isFinite(parsed) && parsed > 0 ? parsed : config.defaultLimit;
+      opts.limit = parsePositiveInt(requireValue(arg, next), config.maxPositions);
+      index += 1;
+    } else if (arg === '--top-pools') {
+      opts.topPools = true;
+    } else if (arg === '--search') {
+      opts.search = requireValue(arg, next);
+      index += 1;
+    } else if (arg === '--wallet') {
+      opts.wallet = requireValue(arg, next);
       index += 1;
     } else {
       throw new Error(`Unknown argument: ${arg}`);
@@ -82,30 +86,14 @@ function parseArgs(argv) {
   if (opts.pool && !isValidAddress(opts.pool)) {
     throw new Error(`Invalid pool address: ${opts.pool}`);
   }
+  if (opts.pools?.some((pool) => !isValidAddress(pool))) {
+    throw new Error('One or more pool addresses in --pools are invalid');
+  }
   if (opts.wallet && !isValidAddress(opts.wallet)) {
     throw new Error(`Invalid wallet address: ${opts.wallet}`);
   }
 
   return opts;
-}
-
-function startSpinner(enabled) {
-  if (!enabled) {
-    return () => {};
-  }
-
-  const frames = ['.', '..', '...'];
-  let index = 0;
-  process.stderr.write('Fetching data');
-  const timer = setInterval(() => {
-    process.stderr.write(`\rFetching data${frames[index % frames.length]}   `);
-    index += 1;
-  }, 350);
-
-  return () => {
-    clearInterval(timer);
-    process.stderr.write('\rFetching data... done\n\n');
-  };
 }
 
 async function main() {
@@ -116,71 +104,70 @@ async function main() {
     return;
   }
 
-  if (!opts.json) {
-    process.stderr.write('Meteora DLMM LP Leaderboard v1.0.0\n');
+  if (opts.noCache) {
+    clearCache();
   }
 
-  const stopSpinner = startSpinner(!opts.json);
-
-  try {
-    if (opts.wallet) {
-      const [solPrice, portfolio] = await Promise.all([
-        getSolPrice(),
-        getWalletPortfolio(opts.wallet),
-      ]);
-      stopSpinner();
-
-      if (opts.json) {
-        process.stdout.write(`${JSON.stringify({ type: 'wallet', solPrice, data: portfolio }, null, 2)}\n`);
-      } else {
-        printWalletPortfolio(portfolio, solPrice);
-      }
-      return;
-    }
-
-    const [solPrice, rows] = await Promise.all([
-      getSolPrice(),
-      getLeaderboard({
-        pool: opts.pool,
-        period: opts.period,
-        limit: opts.limit,
-        mode: opts.mode,
-      }),
-    ]);
-    stopSpinner();
-
+  if (opts.search) {
+    const pools = await searchPool(opts.search);
     if (opts.json) {
-      process.stdout.write(`${JSON.stringify({
-        type: 'leaderboard',
-        mode: opts.mode,
-        period: opts.period,
-        pool: opts.pool,
-        limit: opts.limit,
-        solPrice,
-        data: rows,
-      }, null, 2)}\n`);
+      process.stdout.write(`${JSON.stringify(pools, null, 2)}\n`);
     } else {
-      printLeaderboard(rows, opts, solPrice);
+      printPools(pools);
     }
-  } catch (error) {
-    stopSpinner();
-    throw error;
+    return;
+  }
+
+  if (opts.topPools) {
+    const pools = await getTopPools(opts.limit);
+    if (opts.json) {
+      process.stdout.write(`${JSON.stringify(pools, null, 2)}\n`);
+    } else {
+      printPools(pools);
+    }
+    return;
+  }
+
+  if (opts.wallet) {
+    throw new Error('--wallet is reserved for a future wallet-level view. Use --pool or --pools for leaderboard scans.');
+  }
+
+  if (!opts.json) {
+    printBanner({
+      pool: opts.pool || config.defaultPool,
+      pools: opts.pools?.join(','),
+      mode: opts.mode,
+      limit: opts.limit,
+      concurrency: opts.concurrency,
+    });
+  }
+
+  const result = opts.pools
+    ? await getMultiPoolLeaderboard(opts.pools, {
+      mode: opts.mode,
+      limit: opts.limit,
+      concurrency: opts.concurrency,
+      noCache: opts.noCache,
+      onProgress: opts.json ? null : (done, total) => printProgress(done, total),
+    })
+    : await buildPoolLeaderboard(opts.pool || config.defaultPool, {
+      mode: opts.mode,
+      limit: opts.limit,
+      concurrency: opts.concurrency,
+      noCache: opts.noCache,
+      onProgress: opts.json ? null : (done, total) => printProgress(done, total),
+    });
+
+  if (opts.json) {
+    process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+  } else {
+    printLeaderboard(result);
   }
 }
-
-process.on('unhandledRejection', (reason) => {
-  process.stderr.write(`${red(`Unhandled rejection: ${reason instanceof Error ? reason.message : String(reason)}`)}\n`);
-  process.exitCode = 1;
-});
-
-process.on('uncaughtException', (error) => {
-  process.stderr.write(`${red(`Uncaught exception: ${error.message}`)}\n`);
-  process.exitCode = 1;
-});
 
 try {
   await main();
 } catch (error) {
-  process.stderr.write(`${red(error instanceof Error ? error.message : String(error))}\n`);
+  printError(error instanceof Error ? error.message : String(error));
   process.exitCode = 1;
 }
