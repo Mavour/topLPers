@@ -7,12 +7,10 @@
   "scripts": {
     "start": "node src/cli.js",
     "cli": "node src/cli.js",
-    "bot": "node src/telegramBot.js",
     "test:api": "node -e \"import('./src/api/meteoraApi.js').then(m => m.getPool('5rCf1DM8LjKTw4YqhnoLcngyZYeNnQqztScTogYHAS6').then(console.log))\""
   },
   "dependencies": {
     "dotenv": "^16.4.5",
-    "grammy": "^1.26.0",
     "p-limit": "^5.0.0"
   },
   "engines": {

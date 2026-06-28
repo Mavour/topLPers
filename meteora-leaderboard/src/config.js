@@ -6,15 +6,10 @@ const intFromEnv = (name, fallback) => {
 };
 
 export const config = Object.freeze({
-  telegramToken: process.env.TELEGRAM_BOT_TOKEN || null,
   defaultPool: process.env.DEFAULT_POOL || '5rCf1DM8LjKTw4YqhnoLcngyZYeNnQqztScTogYHAS6',
   maxPositions: intFromEnv('MAX_POSITIONS_PER_POOL', 100),
   concurrency: intFromEnv('CONCURRENCY', 5),
   cacheTtlMs: intFromEnv('CACHE_TTL', 300) * 1000,
-  allowedUserIds: (process.env.ALLOWED_USER_IDS || '')
-    .split(',')
-    .map((value) => Number.parseInt(value.trim(), 10))
-    .filter((value) => Number.isFinite(value) && value > 0),
   heliusApiKey: process.env.HELIUS_API_KEY || null,
   apiBase: 'https://dlmm.datapi.meteora.ag',
   poolDiscoveryBase: 'https://pool-discovery-api.datapi.meteora.ag',

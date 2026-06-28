@@ -15,7 +15,6 @@ Historical deposit and withdraw conversion uses the `price` field from Meteora e
 ## Requirements
 
 - Node.js 20+
-- PM2 for long-running Telegram bot deployment
 
 ## Installation
 
@@ -24,7 +23,7 @@ npm install
 cp .env.example .env
 ```
 
-Edit `.env` before running the Telegram bot.
+Edit `.env` if you want to override the default pool, concurrency, or RPC endpoint.
 
 ## CLI Usage
 
@@ -51,26 +50,6 @@ Supported options:
 --json                   Output JSON
 --no-cache               Clear in-memory cache before run
 --help                   Show help
-```
-
-## Telegram Bot
-
-```bash
-node src/telegramBot.js
-pm2 start ecosystem.config.cjs
-pm2 logs meteora-lb-bot
-```
-
-Commands:
-
-```text
-/lb [pool_address] [winners|losers]
-/leaderboard [pool_address] [winners|losers]
-/pool <pool_address> [winners|losers]
-/pools
-/search <query>
-/help
-/ping
 ```
 
 ## API Endpoints Used
