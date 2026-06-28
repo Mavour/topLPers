@@ -1,0 +1,20 @@
+{
+  "name": "meteora-leaderboard",
+  "version": "1.0.0",
+  "description": "Meteora DLMM LP Leaderboard - CLI + Telegram integration",
+  "type": "module",
+  "main": "src/cli.js",
+  "scripts": {
+    "start": "node src/cli.js",
+    "test:api": "node scripts/test-api.js",
+    "telegram": "node src/telegramHandler.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "grammy": "^1.26.0",
+    "p-limit": "^5.0.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
