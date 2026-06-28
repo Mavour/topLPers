@@ -1,22 +1,20 @@
 const state = {
-  lastQuery: 'wallet',
-  lastParams: null,
-  rows: [],
+  activeView: 'leaderboard',
+  lastWalletParams: null,
 };
 
 const els = {
   healthStatus: document.querySelector('#healthStatus'),
+  walletPanel: document.querySelector('#walletPanel'),
   walletForm: document.querySelector('#walletForm'),
   refreshButton: document.querySelector('#refreshButton'),
   messageBox: document.querySelector('#messageBox'),
   resultsBody: document.querySelector('#resultsBody'),
-  resultTitle: document.querySelector('#resultTitle'),
-  resultScope: document.querySelector('#resultScope'),
   solPrice: document.querySelector('#solPrice'),
   totalPnl: document.querySelector('#totalPnl'),
+  avgPnl: document.querySelector('#avgPnl'),
   totalFees: document.querySelector('#totalFees'),
-  updatedAt: document.querySelector('#updatedAt'),
-  rangeCanvas: document.querySelector('#rangeCanvas'),
+  tabs: Array.from(document.querySelectorAll('.tab-button')),
 };
 
 const base58Re = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
@@ -32,7 +30,7 @@ function fmtUsd(value) {
 
 function fmtSol(value) {
   const number = Number(value) || 0;
-  return `${number.toFixed(4)} SOL`;
+  return `${number.toFixed(2)} SOL`;
 }
 
 function fmtWallet(value) {
@@ -44,19 +42,24 @@ function fmtWallet(value) {
 
 function signClass(value) {
   const number = Number(value) || 0;
-  if (number > 0) {
-    return 'positive';
-  }
-  if (number < 0) {
-    return 'negative';
-  }
+  if (number > 0) return 'positive';
+  if (number < 0) return 'negative';
   return 'neutral';
 }
 
 function setLoading(isLoading) {
   document.querySelectorAll('button').forEach((button) => {
-    button.disabled = isLoading;
+    button.disabled = isLoading || button.closest('.disabled') !== null;
   });
+}
+
+function setMetrics({ solPrice = null, totalPnl = null, avgPnl = null, totalFees = null } = {}) {
+  els.solPrice.textContent = solPrice === null ? '-' : fmtUsd(solPrice);
+  els.totalPnl.textContent = totalPnl === null ? '-' : fmtUsd(totalPnl);
+  els.totalPnl.className = signClass(totalPnl);
+  els.avgPnl.textContent = avgPnl === null ? '-' : fmtUsd(avgPnl);
+  els.avgPnl.className = signClass(avgPnl);
+  els.totalFees.textContent = totalFees === null ? '-' : fmtUsd(totalFees);
 }
 
 function showMessage(text, type = 'info') {
@@ -68,82 +71,41 @@ function hideMessage() {
   els.messageBox.className = 'message hidden';
 }
 
-function setMetrics({ solPrice = null, totalPnl = null, totalFees = null, updatedAt = null }) {
-  els.solPrice.textContent = solPrice === null ? '-' : fmtUsd(solPrice);
-  els.totalPnl.textContent = totalPnl === null ? '-' : fmtUsd(totalPnl);
-  els.totalPnl.className = signClass(totalPnl);
-  els.totalFees.textContent = totalFees === null ? '-' : fmtUsd(totalFees);
-  els.updatedAt.textContent = updatedAt ? new Date(updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-';
-}
-
-function drawRange(rows = []) {
-  const canvas = els.rangeCanvas;
-  const ctx = canvas.getContext('2d');
-  const { width, height } = canvas;
-  ctx.clearRect(0, 0, width, height);
-
-  ctx.fillStyle = '#fbfcfa';
-  ctx.fillRect(0, 0, width, height);
-
-  ctx.strokeStyle = '#d9e0da';
-  ctx.lineWidth = 1;
-  for (let index = 0; index < 5; index += 1) {
-    const y = 36 + index * 42;
-    ctx.beginPath();
-    ctx.moveTo(24, y);
-    ctx.lineTo(width - 24, y);
-    ctx.stroke();
+async function fetchJson(url) {
+  const response = await fetch(url, { cache: 'no-store' });
+  const payload = await response.json();
+  if (!response.ok) {
+    throw new Error(payload.error || `Request failed with HTTP ${response.status}`);
   }
-
-  const visible = rows.slice(0, 18);
-  const max = Math.max(...visible.map((row) => Math.abs(Number(row.pnlUsd || row.feesUsd || 0))), 1);
-  const barGap = 6;
-  const barWidth = Math.max(8, (width - 56 - barGap * Math.max(visible.length - 1, 0)) / Math.max(visible.length, 1));
-  const mid = Math.floor(height * 0.58);
-
-  ctx.strokeStyle = '#637065';
-  ctx.beginPath();
-  ctx.moveTo(22, mid);
-  ctx.lineTo(width - 22, mid);
-  ctx.stroke();
-
-  visible.forEach((row, index) => {
-    const value = Number(row.pnlUsd || row.feesUsd || 0);
-    const magnitude = Math.max(6, Math.abs(value) / max * 96);
-    const x = 28 + index * (barWidth + barGap);
-    const y = value >= 0 ? mid - magnitude : mid;
-    ctx.fillStyle = value >= 0 ? '#147d54' : '#b83c3c';
-    ctx.fillRect(x, y, barWidth, magnitude);
-  });
-
-  if (visible.length === 0) {
-    ctx.fillStyle = '#637065';
-    ctx.font = '16px system-ui';
-    ctx.fillText('No range data loaded', 28, 52);
-  }
+  return payload;
 }
 
 function renderWallet(payload) {
   const portfolio = payload.data;
   const rows = portfolio.pools || [];
-  els.resultTitle.textContent = 'Wallet Portfolio';
-  els.resultScope.textContent = fmtWallet(portfolio.wallet);
+  const avgPnl = rows.length > 0 ? portfolio.totalPnlUsd / rows.length : 0;
+
   els.resultsBody.innerHTML = rows.map((row, index) => `
     <tr>
-      <td data-label="Rank">${index + 1}</td>
-      <td data-label="Pool" class="mono" title="${row.poolAddress}">${row.name || fmtWallet(row.poolAddress)}</td>
+      <td data-label="#">${String(index + 1).padStart(2, '0')}</td>
+      <td data-label="Wallet / Pool">
+        <strong class="mono">${row.name || fmtWallet(row.poolAddress)}</strong>
+        <small class="mono">${fmtWallet(row.poolAddress)}</small>
+      </td>
+      <td data-label="PnL SOL" class="neutral">-</td>
       <td data-label="PnL USD" class="${signClass(row.pnlUsd)}">${fmtUsd(row.pnlUsd)}</td>
       <td data-label="Fees USD">${fmtUsd(row.feesUsd)}</td>
-      <td data-label="Range">${row.inRange ? 'In range' : 'Out of range'}</td>
+      <td data-label="Pos."><span class="pos-pill">${row.inRange ? 'IN' : 'OOR'}</span></td>
     </tr>
   `).join('');
+
   setMetrics({
     solPrice: payload.solPrice,
     totalPnl: portfolio.totalPnlUsd,
+    avgPnl,
     totalFees: portfolio.totalFeesUsd,
-    updatedAt: payload.updatedAt,
   });
-  drawRange(rows);
+
   if (rows.length === 0) {
     showMessage('Wallet loaded. No DLMM pools were returned for this address.');
   } else {
@@ -151,13 +113,26 @@ function renderWallet(payload) {
   }
 }
 
-async function fetchJson(url) {
-  const response = await fetch(url);
-  const payload = await response.json();
-  if (!response.ok) {
-    throw new Error(payload.error || `Request failed with HTTP ${response.status}`);
+function renderUnavailable(view) {
+  els.resultsBody.innerHTML = '';
+  setMetrics();
+  const label = view === 'pool' ? 'Pool PnL' : 'Leaderboard';
+  showMessage(`${label} is unavailable because Meteora does not expose a working public endpoint for this view right now. Wallet Lookup is live.`);
+}
+
+function setView(view) {
+  state.activeView = view;
+  els.tabs.forEach((button) => {
+    button.classList.toggle('active', button.dataset.view === view);
+  });
+  els.walletPanel.classList.toggle('hidden', view !== 'wallet');
+
+  if (view === 'wallet') {
+    showMessage('Enter a wallet address and load live Meteora portfolio data.');
+    return;
   }
-  return payload;
+
+  renderUnavailable(view);
 }
 
 async function loadWallet(formData) {
@@ -167,10 +142,8 @@ async function loadWallet(formData) {
   }
 
   const params = new URLSearchParams({ address });
-  state.lastQuery = 'wallet';
-  state.lastParams = params;
+  state.lastWalletParams = params;
   const payload = await fetchJson(`/api/wallet?${params.toString()}`);
-  state.rows = payload.data?.pools || [];
   renderWallet(payload);
 }
 
@@ -180,11 +153,9 @@ async function runQuery(handler) {
   try {
     await handler();
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
     els.resultsBody.innerHTML = '';
-    setMetrics({});
-    drawRange([]);
-    showMessage(message, 'error');
+    setMetrics();
+    showMessage(error instanceof Error ? error.message : String(error), 'error');
   } finally {
     setLoading(false);
   }
@@ -201,21 +172,27 @@ async function checkHealth() {
   }
 }
 
+els.tabs.forEach((button) => {
+  button.addEventListener('click', () => setView(button.dataset.view));
+});
+
 els.walletForm.addEventListener('submit', (event) => {
   event.preventDefault();
-  const formData = new FormData(els.walletForm);
-  runQuery(() => loadWallet(formData));
+  setView('wallet');
+  runQuery(() => loadWallet(new FormData(els.walletForm)));
 });
 
 els.refreshButton.addEventListener('click', () => {
-  if (!state.lastParams) {
-    showMessage('Run a query first.');
+  if (state.activeView !== 'wallet') {
+    renderUnavailable(state.activeView);
     return;
   }
-  runQuery(() => (
-    fetchJson(`/api/wallet?${state.lastParams.toString()}`).then(renderWallet)
-  ));
+  if (!state.lastWalletParams) {
+    showMessage('Enter a wallet address and load it first.');
+    return;
+  }
+  runQuery(() => fetchJson(`/api/wallet?${state.lastWalletParams.toString()}`).then(renderWallet));
 });
 
-drawRange([]);
+setView('leaderboard');
 checkHealth();

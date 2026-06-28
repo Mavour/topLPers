@@ -6,7 +6,6 @@ import { dirname } from 'node:path';
 import { config } from './config.js';
 import { getSolPrice } from './api/jupiterPrice.js';
 import { isValidAddress } from './api/meteoraClient.js';
-import { getLeaderboard } from './core/leaderboard.js';
 import { getWalletPortfolio } from './core/walletPortfolio.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -33,18 +32,6 @@ function sendJson(res, statusCode, payload) {
   res.end(body);
 }
 
-function parseLimit(value) {
-  const parsed = Number.parseInt(value, 10);
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    return config.defaultLimit;
-  }
-  return Math.min(parsed, 100);
-}
-
-function parseMode(value) {
-  return String(value).toLowerCase() === 'losers' ? 'losers' : 'winners';
-}
-
 function publicPath(pathname) {
   const requested = pathname === '/' ? '/index.html' : pathname;
   const cleanPath = normalize(decodeURIComponent(requested)).replace(/^(\.\.[/\\])+/, '');
@@ -52,36 +39,10 @@ function publicPath(pathname) {
 }
 
 async function handleLeaderboard(reqUrl, res) {
-  const mode = parseMode(reqUrl.searchParams.get('mode'));
-  const period = reqUrl.searchParams.get('period') || config.defaultPeriod;
-  const limit = parseLimit(reqUrl.searchParams.get('limit'));
-  const pool = reqUrl.searchParams.get('pool')?.trim() || null;
-
-  if (pool && !isValidAddress(pool)) {
-    sendJson(res, 400, { error: 'Invalid pool address.' });
-    return;
-  }
-
-  try {
-    const [solPrice, rows] = await Promise.all([
-      getSolPrice(),
-      getLeaderboard({ pool, period, limit, mode }),
-    ]);
-
-    sendJson(res, 200, {
-      mode,
-      period,
-      limit,
-      pool,
-      solPrice,
-      data: rows,
-      updatedAt: new Date().toISOString(),
-    });
-  } catch (error) {
-    sendJson(res, 502, {
-      error: error instanceof Error ? error.message : String(error),
-    });
-  }
+  void reqUrl;
+  sendJson(res, 503, {
+    error: 'Meteora public leaderboard API is unavailable. Wallet portfolio lookup remains available.',
+  });
 }
 
 async function handleWallet(reqUrl, res) {
@@ -122,9 +83,13 @@ async function serveStatic(reqUrl, res) {
   try {
     const body = await readFile(filePath);
     const contentType = mimeTypes[extname(filePath)] || 'application/octet-stream';
+    const extension = extname(filePath);
+    const cacheControl = ['.html', '.js', '.css'].includes(extension)
+      ? 'no-store'
+      : 'public, max-age=3600';
     res.writeHead(200, {
       'content-type': contentType,
-      'cache-control': contentType.includes('html') ? 'no-store' : 'public, max-age=3600',
+      'cache-control': cacheControl,
     });
     res.end(body);
   } catch {

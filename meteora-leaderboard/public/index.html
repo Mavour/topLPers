@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Meteora DLMM LP Leaderboard</title>
-    <link rel="stylesheet" href="/styles.css">
+    <link rel="stylesheet" href="/styles.css?v=20260628-dark">
   </head>
   <body>
     <main class="app-shell">
@@ -12,96 +12,82 @@
         <div>
           <p class="eyebrow">Meteora DLMM</p>
           <h1>LP Leaderboard</h1>
+          <p class="subtitle">PnL rankings across open & closed positions</p>
         </div>
         <div class="status-pill" id="healthStatus">Checking API</div>
       </header>
 
-      <section class="control-grid" aria-label="Query controls">
-        <section class="panel notice-panel">
-          <div class="panel-heading">
-            <h2>Leaderboard</h2>
-            <span>API unavailable</span>
-          </div>
-          <p>
-            Meteora public leaderboard endpoints currently return 404. This site keeps the wallet portfolio
-            lookup active and avoids retrying dead leaderboard URLs.
-          </p>
-        </section>
+      <section class="toolbar" aria-label="Leaderboard filters">
+        <div class="segmented disabled" aria-label="Mode filters">
+          <button type="button" disabled>Top winners</button>
+          <button type="button" disabled>Top losers</button>
+        </div>
+        <div class="segmented disabled" aria-label="Period filters">
+          <button type="button" disabled>7d</button>
+          <button type="button" disabled>30d</button>
+          <button type="button" disabled>90d</button>
+          <button type="button" disabled>All</button>
+        </div>
+        <button class="ghost-button" id="refreshButton" type="button">↻ Refresh</button>
+      </section>
 
-        <form class="panel query-panel" id="walletForm">
-          <div class="panel-heading">
-            <h2>Wallet Portfolio</h2>
-            <span>Open and closed DLMM pool summary</span>
-          </div>
+      <nav class="tabs" aria-label="Views">
+        <button class="tab-button active" type="button" data-view="leaderboard">Leaderboard</button>
+        <button class="tab-button" type="button" data-view="wallet">Wallet Lookup</button>
+        <button class="tab-button" type="button" data-view="pool">Pool PnL</button>
+      </nav>
 
+      <section class="wallet-panel hidden" id="walletPanel">
+        <form id="walletForm">
           <label>
             <span>Wallet address</span>
             <input name="address" type="text" autocomplete="off" value="11111111111111111111111111111111">
           </label>
-
           <button type="submit">Load wallet</button>
         </form>
       </section>
 
-      <section class="metrics-strip" id="metricsStrip" aria-label="Summary metrics">
-        <div>
-          <span>SOL price</span>
-          <strong id="solPrice">-</strong>
-        </div>
-        <div>
+      <section class="summary-grid" aria-label="Summary metrics">
+        <article class="metric-card">
           <span>Total PnL</span>
           <strong id="totalPnl">-</strong>
-        </div>
-        <div>
-          <span>Total fees</span>
+        </article>
+        <article class="metric-card">
+          <span>Avg PnL</span>
+          <strong id="avgPnl">-</strong>
+        </article>
+        <article class="metric-card">
+          <span>Total fees earned</span>
           <strong id="totalFees">-</strong>
-        </div>
-        <div>
-          <span>Updated</span>
-          <strong id="updatedAt">-</strong>
-        </div>
+        </article>
+        <article class="metric-card">
+          <span>SOL price</span>
+          <strong id="solPrice">-</strong>
+        </article>
       </section>
 
-      <section class="workspace">
-        <aside class="visual-panel" aria-label="Liquidity overview">
-          <div class="panel-heading">
-            <h2>Range View</h2>
-            <span>Live query summary</span>
-          </div>
-          <canvas id="rangeCanvas" width="540" height="260"></canvas>
-          <div class="legend-row">
-            <span><i class="legend-positive"></i>Positive PnL</span>
-            <span><i class="legend-negative"></i>Negative PnL</span>
-          </div>
-        </aside>
-
-        <section class="results-panel" aria-live="polite">
-          <div class="results-heading">
-            <div>
-              <p class="eyebrow" id="resultScope">Wallet</p>
-              <h2 id="resultTitle">Wallet Portfolio</h2>
-            </div>
-            <button class="secondary-button" id="refreshButton" type="button">Refresh</button>
-          </div>
-          <div class="message" id="messageBox">Run a query to load data.</div>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Rank</th>
-                  <th>Wallet / Pool</th>
-                  <th>PnL USD</th>
-                  <th>Fees USD</th>
-                  <th>Positions</th>
-                </tr>
-              </thead>
-              <tbody id="resultsBody"></tbody>
-            </table>
-          </div>
-        </section>
+      <section class="table-panel" aria-live="polite">
+        <div class="message" id="messageBox">
+          Meteora public leaderboard endpoints currently return 404. Use Wallet Lookup for live portfolio data.
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Wallet / Pool</th>
+                <th>PnL SOL</th>
+                <th>PnL USD</th>
+                <th>Fees USD</th>
+                <th>Pos.</th>
+              </tr>
+            </thead>
+            <tbody id="resultsBody"></tbody>
+          </table>
+        </div>
       </section>
     </main>
 
-    <script src="/app.js" type="module"></script>
+    <script src="/app.js?v=20260628-dark" type="module"></script>
   </body>
 </html>
