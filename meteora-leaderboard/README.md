@@ -26,6 +26,14 @@ cp .env.example .env
 
 Edit `.env` if you want to override the default pool, concurrency, or RPC endpoint.
 
+For live LP valuation, use a private RPC. Public Solana RPC commonly returns `429` on DLMM position scans:
+
+```dotenv
+HELIUS_API_KEY=your_key_here
+# or
+SOLANA_RPC_URL=https://your-private-mainnet-rpc
+```
+
 ## Web Dashboard
 
 ```bash
@@ -107,7 +115,7 @@ GET https://api.jup.ag/price/v3?ids={mintAddress},{mintAddress2}
 
 ```text
 404 / not found      Pool or position address is wrong or unavailable.
-Rate limit / 429     Lower CONCURRENCY in .env.
+Rate limit / 429     Set HELIUS_API_KEY or SOLANA_RPC_URL in .env, then restart PM2.
 Timeout              Retry, lower --limit, or increase request timeout in src/config.js.
 Empty prices         Jupiter price API failed; PnL may show zeros for unknown token prices.
 ```

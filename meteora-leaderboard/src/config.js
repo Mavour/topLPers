@@ -5,16 +5,21 @@ const intFromEnv = (name, fallback) => {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 };
 
+const heliusApiKey = process.env.HELIUS_API_KEY || null;
+const defaultRpcUrl = heliusApiKey
+  ? `https://mainnet.helius-rpc.com/?api-key=${heliusApiKey}`
+  : 'https://api.mainnet-beta.solana.com';
+
 export const config = Object.freeze({
   port: intFromEnv('PORT', 7777),
   defaultPool: process.env.DEFAULT_POOL || '5rCf1DM8LjKTw4YqhnoLcngyZYeNnQqztScTogYHAS6',
   maxPositions: intFromEnv('MAX_POSITIONS_PER_POOL', 100),
   concurrency: intFromEnv('CONCURRENCY', 5),
   cacheTtlMs: intFromEnv('CACHE_TTL', 300) * 1000,
-  heliusApiKey: process.env.HELIUS_API_KEY || null,
+  heliusApiKey,
   apiBase: 'https://dlmm.datapi.meteora.ag',
   poolDiscoveryBase: 'https://pool-discovery-api.datapi.meteora.ag',
-  solanaRpcUrl: process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
+  solanaRpcUrl: process.env.SOLANA_RPC_URL || defaultRpcUrl,
   dlmmProgramId: 'LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo',
   jupiterPriceUrl: 'https://api.jup.ag/price/v3',
   requestTimeoutMs: 15_000,

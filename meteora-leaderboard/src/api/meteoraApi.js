@@ -128,10 +128,16 @@ async function rpcRequest(method, params) {
     const body = await response.text();
 
     if (!response.ok) {
+      if (response.status === 429) {
+        throw new Error('Solana RPC rate limit exceeded. Set HELIUS_API_KEY or SOLANA_RPC_URL in .env, then restart PM2.');
+      }
       throw new Error(`RPC HTTP ${response.status}: ${body.slice(0, 200)}`);
     }
 
     const parsed = body ? JSON.parse(body) : {};
+    if (parsed.error?.code === 429 || /rate limit/i.test(parsed.error?.message || '')) {
+      throw new Error('Solana RPC rate limit exceeded. Set HELIUS_API_KEY or SOLANA_RPC_URL in .env, then restart PM2.');
+    }
     if (parsed.error) {
       throw new Error(`RPC ${parsed.error.code}: ${parsed.error.message}`);
     }
