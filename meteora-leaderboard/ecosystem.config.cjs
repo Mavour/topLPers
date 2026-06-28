@@ -1,12 +1,12 @@
 module.exports = {
   apps: [
     {
-      name: 'meteora-leaderboard-bot',
-      script: 'src/telegramHandler.js',
+      name: 'meteora-leaderboard-web',
+      script: 'src/server.js',
       interpreter: 'node',
-      interpreter_args: '--experimental-vm-modules',
       env: {
         NODE_ENV: 'production',
+        PORT: 3000,
       },
       restart_delay: 5000,
       max_restarts: 10,

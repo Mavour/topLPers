@@ -1,8 +1,8 @@
 # Meteora DLMM LP Leaderboard
 
-Standalone Node.js tool for querying Meteora DLMM LP winners, losers, pool leaderboards, and wallet portfolio summaries from the command line or Telegram.
+Responsive web dashboard for querying Meteora DLMM LP leaderboards and wallet portfolio summaries. The app is served by a standalone Node.js server and works on desktop and mobile browsers.
 
-This tool protects capital by treating API data as unstable: every Meteora call uses timeout, retry, fallback endpoints, and defensive response normalization. It does not make pool-entry decisions and does not bypass the separate rug-check requirement for any LP deployment.
+The leaderboard endpoints originally requested for Meteora currently return `404` from Meteora, so the UI surfaces that error instead of fabricating data. Wallet portfolio endpoints from the current official Meteora DLMM Data API are wired and verified.
 
 ## Installation
 
@@ -19,104 +19,85 @@ Requires Node.js 20+.
 Edit `.env`:
 
 ```dotenv
-TELEGRAM_BOT_TOKEN=123456:ABC-DEF...
+PORT=3000
 HELIUS_API_KEY=your_helius_key_here
 DEFAULT_PERIOD=7
 DEFAULT_LIMIT=20
-ALLOWED_TELEGRAM_IDS=123456789,987654321
 CACHE_TTL_SECONDS=300
 ```
 
-`ALLOWED_TELEGRAM_IDS` can be blank for open access. `SOL_PRICE_OVERRIDE=150` can be set when Jupiter is unavailable or you want deterministic test output.
+`SOL_PRICE_OVERRIDE=150` can be set when Jupiter is unavailable or you want deterministic output.
 
-## CLI Usage
-
-```bash
-node src/cli.js --help
-node src/cli.js
-node src/cli.js --losers --period 30 --limit 10
-node src/cli.js --pool ARwi1S4DaiTG5DX7S4M4ZsrXqpMD1MrTmbu9ue2tpmEq
-node src/cli.js --wallet 11111111111111111111111111111111
-node src/cli.js --json 2>/dev/null > output.json
-```
-
-Example terminal shape:
-
-```text
-Meteora DLMM LP Leaderboard v1.0.0
-Fetching data... done
-
-🏆 TOP LP WINNERS - Global (Last 7 days)
-────────────────────────────────────────────────────────────────────────────────────────────────
-#    Wallet            PnL SOL           PnL USD           Fees USD        Positions
-────────────────────────────────────────────────────────────────────────────────────────────────
-🥇   4tZ8Gm...EmNv    +12.3400 SOL      +$1.85K          +$210.00        3
-🥈   9xQP7r...3vBn    +8.1200 SOL       +$1.22K          +$145.00        2
-```
-
-## Telegram Bot Setup
-
-1. Create a bot with `@BotFather`.
-2. Put the token in `.env` as `TELEGRAM_BOT_TOKEN`.
-3. Optionally set `ALLOWED_TELEGRAM_IDS`.
-4. Start polling:
+## Run The Website
 
 ```bash
-npm run telegram
+npm start
 ```
 
-Commands:
+Open:
 
 ```text
-/leaderboard
-/leaderboard losers
-/leaderboard 30
-/leaderboard losers 30
-/leaderboard all
-/pool <address>
-/pool <address> losers
-/pool <address> 30
-/pool <address> losers 30
-/wallet <address>
-/help
-/ping
+http://localhost:3000
 ```
 
-## Integration Into Existing Bot
+The page includes:
 
-The standalone handler also exports reusable pieces:
+- Global leaderboard query
+- Pool-scoped leaderboard query
+- Winners / losers mode
+- Period and row limit controls
+- Wallet portfolio lookup
+- Responsive desktop table and mobile card-style rows
 
-```javascript
-import { createBot, parseTelegramArgs } from './meteora-leaderboard/src/telegramHandler.js';
-import { getLeaderboard } from './meteora-leaderboard/src/core/leaderboard.js';
-import { formatLeaderboard } from './meteora-leaderboard/src/formatters/telegramFormatter.js';
+## API Routes
+
+```text
+GET /api/health
+GET /api/leaderboard?mode=winners&period=7&limit=20
+GET /api/leaderboard?mode=losers&period=30&limit=10&pool=<poolAddress>
+GET /api/wallet?address=<walletAddress>
 ```
 
-For an existing `grammY` bot, copy the command bodies from `src/telegramHandler.js` or call `getLeaderboard()` and `formatLeaderboard()` directly. For `node-telegram-bot-api`, reuse the core and formatter modules, then send the returned HTML with `parse_mode: 'HTML'`.
+All API routes return JSON. Errors are returned as:
+
+```json
+{
+  "error": "message"
+}
+```
+
+## CLI
+
+The CLI remains available for local diagnostics:
+
+```bash
+npm run cli -- --help
+npm run cli -- --wallet 11111111111111111111111111111111 --json
+```
 
 ## PM2 Deployment
 
 ```bash
 cd meteora-leaderboard
 pm2 start ecosystem.config.cjs
-pm2 logs meteora-leaderboard-bot
+pm2 logs meteora-leaderboard-web
 pm2 save
 ```
 
-The PM2 app runs `src/telegramHandler.js` in polling mode and restarts with a 5 second delay.
+Set `PORT` in the PM2 environment or `.env` if you do not want port `3000`.
 
 ## Verification
 
 ```bash
 npm run test:api
-node src/cli.js --help
-node src/cli.js --json
+node --check src/server.js
+npm start
 ```
 
 `scripts/test-api.js` checks:
 
-- 3 global leaderboard URL variants
-- 4 pool leaderboard URL variants
+- 3 prompt-specified global leaderboard URL variants
+- 4 prompt-specified pool leaderboard URL variants
 - 3 current official wallet portfolio URL variants
 - 3 legacy wallet portfolio URL variants
 - Jupiter SOL price API
@@ -160,14 +141,10 @@ https://price.jup.ag/v6/price?ids=So11111111111111111111111111111111111111112
 
 ## Troubleshooting
 
-`Leaderboard endpoints return 404`: The prompt-specified global and pool leaderboard URLs are kept in the client, but as of the latest verification they return 404 from Meteora. Wallet portfolio endpoints documented in the current Meteora DLMM API are working. Do not invent replacement leaderboard data without a verified endpoint.
+`Leaderboard endpoints return 404`: The prompt-specified global and pool leaderboard URLs are kept in the client, but current Meteora responses return 404. Do not invent replacement leaderboard data without a verified endpoint.
 
-`HTTP 404/410`: Meteora has changed or removed an endpoint. Run `npm run test:api` and use the working fallback shown in logs.
+`AbortError`: The endpoint timed out. Meteora calls retry three times and fall back to other URLs.
 
-`AbortError`: The endpoint timed out. The client retries Meteora calls three times and falls back to other URLs.
-
-`429` or rate limit: Increase cache TTL with `CACHE_TTL_SECONDS`, reduce Telegram access, or put the bot behind an allowlist.
-
-`Telegram message too long`: The formatter caps messages at 4000 characters and sends extra chunks when needed.
+`429` or rate limit: Increase `CACHE_TTL_SECONDS`, reduce request frequency, or add upstream caching.
 
 `No rows returned`: The endpoint may be live but using an unexpected schema. Inspect `scripts/test-api.js` output and extend `normalizeRows()` aliases in `src/api/meteoraClient.js`.
