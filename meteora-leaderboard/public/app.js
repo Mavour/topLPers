@@ -78,7 +78,7 @@ async function api(path, params = {}) {
 function renderStats(result) {
   const rows = result.rankings.slice(0, 20);
   const total = rows.reduce((sum, row) => sum + (row.pnlUsd || 0), 0);
-  const fees = rows.reduce((sum, row) => sum + (row.feesEarnedUsd || 0), 0);
+  const fees = rows.reduce((sum, row) => sum + (row.feesEarnedUsd || 0) + (row.unclaimedFeesUsd || 0), 0);
   const avg = rows.length ? total / rows.length : 0;
 
   el.totalPnl.textContent = usd(total);
@@ -104,7 +104,7 @@ function renderRows(result) {
       </td>
       <td class="${pnlClass}">${sol(row.pnlSol)}</td>
       <td class="${pnlClass}">${usd(row.pnlUsd, 2)}</td>
-      <td>${usd(row.feesEarnedUsd, 2).replace('+', '')}</td>
+      <td>${usd((row.feesEarnedUsd || 0) + (row.unclaimedFeesUsd || 0), 2).replace('+', '')}</td>
       <td><span class="pos-pill">${row.positionCount || 0}</span></td>
     `;
     el.leaderboardBody.appendChild(tr);
@@ -114,7 +114,7 @@ function renderRows(result) {
 function renderPool(result) {
   const rows = result.rankings;
   const total = rows.reduce((sum, row) => sum + (row.pnlUsd || 0), 0);
-  const fees = rows.reduce((sum, row) => sum + (row.feesEarnedUsd || 0), 0);
+  const fees = rows.reduce((sum, row) => sum + (row.feesEarnedUsd || 0) + (row.unclaimedFeesUsd || 0), 0);
   const positions = rows.reduce((sum, row) => sum + (row.positionCount || 0), 0);
 
   el.poolName.textContent = result.pool.name || shortAddress(result.pool.address);
@@ -169,7 +169,7 @@ async function lookupWallet() {
     el.walletResult.innerHTML = `
       <strong>${shortAddress(row.wallet)}</strong><br>
       <span class="${pnlClass}">${usd(row.pnlUsd, 2)} / ${sol(row.pnlSol)}</span><br>
-      Current LP: ${usd(row.currentPositionUsd, 2).replace('+', '')} · Fees: ${usd(row.feesEarnedUsd, 2).replace('+', '')} · Positions: ${row.positionCount}
+      Current LP: ${usd(row.currentPositionUsd, 2).replace('+', '')} · Fees: ${usd((row.feesEarnedUsd || 0) + (row.unclaimedFeesUsd || 0), 2).replace('+', '')} · Positions: ${row.positionCount}
     `;
     setStatus('');
   } catch (error) {

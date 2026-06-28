@@ -7,10 +7,10 @@ Standalone Node.js web dashboard and CLI for building a Meteora DLMM LP leaderbo
 The tool fetches active positions for a pool, then fetches deposits, withdraws, and current position state for each position. PnL is computed per position and aggregated by wallet:
 
 ```text
-PnL = total_value_withdrawn - total_value_deposited + current_position_value + unclaimed_fees
+PnL = total_value_withdrawn - total_value_deposited + current_position_value + claimed_fees
 ```
 
-Historical deposit and withdraw conversion uses Meteora position history USD fields when available. Current position value and unclaimed fees are decoded on-chain with the Meteora DLMM SDK, then converted to USD with Jupiter prices or Meteora pool token prices as fallback.
+Historical deposit and withdraw conversion uses Meteora position history USD fields when available. Current position value and unclaimed fees are decoded on-chain with the Meteora DLMM SDK, then converted to USD with Jupiter prices or Meteora pool token prices as fallback. Unclaimed fees are shown in the Fees column but are not added to the main PnL ranking.
 
 ## Requirements
 

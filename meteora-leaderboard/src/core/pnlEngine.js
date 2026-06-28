@@ -242,7 +242,8 @@ export async function computePositionPnl(positionAddress, owner, poolInfo, curre
     const feesEarnedUsd = feeClaims.reduce((sum, event) => {
       return sum + eventUsdValue(event, poolInfo, currentPrices);
     }, 0);
-    const pnlUsd = totalWithdrawnUsd + currentPositionUsd + unclaimedFeesUsd + feesEarnedUsd - totalDepositedUsd;
+    const pnlUsd = totalWithdrawnUsd + currentPositionUsd + feesEarnedUsd - totalDepositedUsd;
+    const pnlWithUnclaimedFeesUsd = pnlUsd + unclaimedFeesUsd;
     const amounts = currentTokenAmounts(positionState);
 
     return {
@@ -250,6 +251,8 @@ export async function computePositionPnl(positionAddress, owner, poolInfo, curre
       owner,
       pnlUsd,
       pnlSol: solPriceUsd > 0 ? pnlUsd / solPriceUsd : 0,
+      pnlWithUnclaimedFeesUsd,
+      pnlWithUnclaimedFeesSol: solPriceUsd > 0 ? pnlWithUnclaimedFeesUsd / solPriceUsd : 0,
       totalDepositedUsd,
       totalWithdrawnUsd,
       currentPositionUsd,
