@@ -289,7 +289,22 @@ export async function getPositionState(positionAddress) {
     throw new Error(`Invalid position address: ${positionAddress}`);
   }
 
-  return cached(`position:${positionAddress}`, 60_000, async () => ({}));
+  return cached(`position:${positionAddress}`, 60_000, async () => {
+    const result = await rpcRequest('getAccountInfo', [
+      positionAddress,
+      { encoding: 'base64', dataSlice: { offset: 0, length: 16 } },
+    ]);
+    const encoded = result?.value?.data?.[0];
+    const bytes = encoded ? Buffer.from(encoded, 'base64') : null;
+    return {
+      positionAddress,
+      totalXAmount: bytes && bytes.length >= 8 ? Number(bytes.readBigUInt64LE(0)) : 0,
+      totalYAmount: bytes && bytes.length >= 16 ? Number(bytes.readBigUInt64LE(8)) : 0,
+      unclaimedFeeX: 0,
+      unclaimedFeeY: 0,
+      source: 'solana-rpc',
+    };
+  });
 }
 
 export async function getAllPoolsPage(page = 0, limit = 50) {

@@ -96,7 +96,8 @@ export function upsertWalletPoolPnl(data) {
 
 export function getLeaderboard({ mode = 'winners', limit = 50, offset = 0, pool = null, period = '7' }) {
   const direction = mode === 'losers' ? 'ASC' : 'DESC';
-  const days = String(period) === '1' ? 1 : 7;
+  const requestedDays = Number.parseInt(String(period).replace(/d$/i, ''), 10);
+  const days = requestedDays === 1 ? 1 : 7;
   const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
   const rows = db.prepare(`
     SELECT * FROM wallet_pool_pnl

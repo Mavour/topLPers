@@ -81,6 +81,11 @@ export function initDb() {
   } catch {
     // Column already exists.
   }
+  try {
+    db.prepare('ALTER TABLE wallet_pool_pnl ADD COLUMN last_updated INTEGER').run();
+  } catch {
+    // Column already exists.
+  }
 
   return db;
 }

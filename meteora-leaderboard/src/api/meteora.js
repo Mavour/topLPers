@@ -79,6 +79,40 @@ export function getTokenDecimals(pool, side) {
   ]), 9);
 }
 
+function poolTvl(pool) {
+  return numberFrom(firstDefined(pool, [
+    'current_tvl',
+    'tvl',
+    'tvl_usd',
+    'tvlUsd',
+    'liquidity',
+    'liquidity_usd',
+    'liquidityUsd',
+  ]), 0);
+}
+
+function poolVolume24h(pool) {
+  return numberFrom(firstDefined(pool, [
+    'trade_volume_24h',
+    'volume_24h',
+    'volume24h',
+    'volumeUsd24h',
+    'volume_usd_24h',
+    'volume.24h',
+  ]), 0);
+}
+
+function poolVolume7d(pool) {
+  return numberFrom(firstDefined(pool, [
+    'trade_volume_7d',
+    'volume_7d',
+    'volume7d',
+    'volumeUsd7d',
+    'volume_usd_7d',
+    'volume.7d',
+  ]), 0);
+}
+
 async function request(baseUrl, path, queryParams = {}, attempt = 1) {
   const url = new URL(baseUrl + path);
   Object.entries(queryParams).forEach(([key, value]) => {
@@ -200,14 +234,11 @@ export async function getActivePools() {
   const allPools = [];
   for (let page = 0; page < 5; page += 1) {
     try {
-      const data = await tryRequest([
-        { baseUrl: DATA_API, path: '/pools', params: { page: page + 1, page_size: 100 } },
-        { baseUrl: PAIR_API, path: '/pair/all', params: { page, limit: 100 } },
-      ]);
+      const data = await request(DATA_API, '/pools', { page: page + 1, page_size: 100, limit: 100 });
       const pools = normalizeArray(data, ['data', 'pairs', 'pools']);
       if (!pools.length) break;
       allPools.push(...pools);
-      const lastTvl = numberFrom(firstDefined(pools[pools.length - 1], ['current_tvl', 'tvl', 'liquidity']), 0);
+      const lastTvl = poolTvl(pools[pools.length - 1]);
       if (lastTvl < config.minTvlUsd / 2) break;
     } catch (error) {
       console.warn(`[meteora] getActivePools page ${page} failed: ${error.message}`);
@@ -216,16 +247,15 @@ export async function getActivePools() {
   }
 
   const filtered = allPools.filter((pool) => {
-    const tvl = numberFrom(firstDefined(pool, ['current_tvl', 'tvl', 'liquidity']), 0);
-    const vol24h = numberFrom(firstDefined(pool, ['trade_volume_24h', 'volume_24h', 'volume24h', 'volumeUsd24h']), 0);
-    const vol7d = numberFrom(firstDefined(pool, ['trade_volume_7d', 'volume_7d', 'volume7d', 'volumeUsd7d']), 0);
+    const tvl = poolTvl(pool);
+    const vol24h = poolVolume24h(pool);
+    const vol7d = poolVolume7d(pool);
     if (tvl < config.minTvlUsd) return false;
     return vol24h >= config.minVolume24h || vol7d >= config.minVolume7d;
   });
 
   const sorted = filtered
-    .sort((left, right) => numberFrom(firstDefined(right, ['trade_volume_24h', 'volume_24h', 'volume24h', 'volumeUsd24h']), 0)
-      - numberFrom(firstDefined(left, ['trade_volume_24h', 'volume_24h', 'volume24h', 'volumeUsd24h']), 0))
+    .sort((left, right) => poolTvl(right) - poolTvl(left))
     .slice(0, config.maxPoolsToIndex);
 
   console.log(`[meteora] active pools: ${filtered.length} found, using top ${sorted.length}`);
@@ -243,10 +273,7 @@ export async function getPool(poolAddress) {
   const cached = cacheGet(cacheKey);
   if (cached) return cached;
 
-  const data = await tryRequest([
-    { baseUrl: DATA_API, path: `/pools/${encodeURIComponent(poolAddress)}` },
-    { baseUrl: PAIR_API, path: `/pair/${encodeURIComponent(poolAddress)}` },
-  ]);
+  const data = await request(DATA_API, `/pools/${encodeURIComponent(poolAddress)}`);
   cacheSet(cacheKey, data, 5 * 60 * 1000);
   return data;
 }
@@ -256,14 +283,7 @@ export async function getPoolPositions(poolAddress, limit = config.maxPositions)
   const cached = cacheGet(cacheKey);
   if (cached) return cached;
 
-  let positions;
-  try {
-    const data = await request(PAIR_API, `/pair/${encodeURIComponent(poolAddress)}/positions`, { limit });
-    positions = normalizeArray(data, ['data', 'positions']);
-  } catch (error) {
-    console.warn(`[meteora] pool positions API failed, using RPC: ${poolAddress.slice(0, 8)} ${error.message}`);
-    positions = await getPoolPositionsFromRpc(poolAddress, limit);
-  }
+  const positions = await getPoolPositionsFromRpc(poolAddress, limit);
 
   cacheSet(cacheKey, positions, 2 * 60 * 1000);
   return positions;
@@ -304,8 +324,36 @@ export function getPositionFeeClaims() {
   return [];
 }
 
-export function getPositionState() {
-  return {};
+function readU64LE(bytes, offset) {
+  if (!bytes || bytes.length < offset + 8) return 0;
+  return Number(bytes.readBigUInt64LE(offset));
+}
+
+export async function getPositionState(positionAddress) {
+  if (!isValidAddress(positionAddress)) {
+    throw new Error(`Invalid position address: ${positionAddress}`);
+  }
+
+  const cacheKey = `position:${positionAddress}`;
+  const cached = cacheGet(cacheKey);
+  if (cached) return cached;
+
+  const result = await rpcRequest('getAccountInfo', [
+    positionAddress,
+    { encoding: 'base64', dataSlice: { offset: 0, length: 16 } },
+  ]);
+  const encoded = result?.value?.data?.[0];
+  const bytes = encoded ? Buffer.from(encoded, 'base64') : null;
+  const state = {
+    positionAddress,
+    totalXAmount: readU64LE(bytes, 0),
+    totalYAmount: readU64LE(bytes, 8),
+    unclaimedFeeX: 0,
+    unclaimedFeeY: 0,
+    source: 'solana-rpc',
+  };
+  cacheSet(cacheKey, state, 60 * 1000);
+  return state;
 }
 
 export async function getWalletClosedPositions(walletAddress) {
@@ -313,7 +361,8 @@ export async function getWalletClosedPositions(walletAddress) {
 }
 
 export async function getWalletOpenPositions(walletAddress) {
-  return getPaginatedPortfolio(walletAddress, 'open-positions', 10, 60 * 1000);
+  if (!isValidAddress(walletAddress)) return [];
+  return [];
 }
 
 export async function getWalletPortfolio(walletAddress) {

@@ -13,6 +13,12 @@ const USDC_MINT = 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v';
 const USDT_MINT = 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB';
 const PYUSD_MINT = '2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo';
 const STABLE_MINTS = new Set([USDC_MINT, USDT_MINT, PYUSD_MINT]);
+const KNOWN_DECIMALS = new Map([
+  [SOL_MINT, 9],
+  [USDC_MINT, 6],
+  [USDT_MINT, 6],
+  [PYUSD_MINT, 6],
+]);
 
 export function isStablecoin(mintAddress) {
   return STABLE_MINTS.has(String(mintAddress || ''));
@@ -61,6 +67,40 @@ function tokenYMint(poolInfo) {
     'token_y.mint',
     'tokenY.address',
   ]);
+}
+
+function getTokenDecimals(poolInfo, side) {
+  const upper = side.toUpperCase();
+  const lower = side.toLowerCase();
+  const mint = side === 'x' ? tokenXMint(poolInfo) : tokenYMint(poolInfo);
+  const known = KNOWN_DECIMALS.get(String(mint || ''));
+  if (known !== undefined) return known;
+  return numberFrom(nestedFirst(poolInfo, [
+    `token_${lower}_decimals`,
+    `token${upper}Decimals`,
+    `token${upper}.decimals`,
+    `token_${lower}.decimals`,
+    `mint_${lower}_decimals`,
+  ]), 9);
+}
+
+function scaleRawAmount(value, decimals) {
+  if (!value || value === 0) return 0;
+  return value / 10 ** decimals;
+}
+
+function looksLikeRawAmount(value, decimals) {
+  if (!value || value === 0) return false;
+  return value >= 10 ** (decimals + 2);
+}
+
+function safeScaleEventAmounts(amounts, poolInfo) {
+  const decX = getTokenDecimals(poolInfo, 'x');
+  const decY = getTokenDecimals(poolInfo, 'y');
+  return {
+    x: looksLikeRawAmount(amounts.x, decX) ? scaleRawAmount(amounts.x, decX) : amounts.x,
+    y: looksLikeRawAmount(amounts.y, decY) ? scaleRawAmount(amounts.y, decY) : amounts.y,
+  };
 }
 
 function tokenPoolPrice(poolInfo, side) {
@@ -186,7 +226,9 @@ function eventUsdValue(event, poolInfo, currentPrices) {
   }
 
   const eventPrices = pricesForEvent(event, poolInfo, currentPrices);
-  return usdValue(eventTokenAmounts(event), eventPrices.priceX, eventPrices.priceY);
+  const rawAmounts = eventTokenAmounts(event);
+  const amounts = safeScaleEventAmounts(rawAmounts, poolInfo);
+  return usdValue(amounts, eventPrices.priceX, eventPrices.priceY);
 }
 
 function zeroResult(positionAddress, owner, error = null) {
@@ -238,14 +280,19 @@ export async function computePositionPnl(positionAddress, owner, poolInfo, curre
       return sum + eventUsdValue(event, poolInfo, currentPrices);
     }, 0);
 
-    const currentPositionUsd = usdValue(currentTokenAmounts(positionState), priceX, priceY);
-    const unclaimedFeesUsd = usdValue(feeTokenAmounts(positionState), priceX, priceY);
+    const amounts = safeScaleEventAmounts(currentTokenAmounts(positionState), poolInfo);
+    const currentPositionUsd = usdValue(amounts, priceX, priceY);
+    const fees = safeScaleEventAmounts(feeTokenAmounts(positionState), poolInfo);
+    const unclaimedFeesUsd = usdValue(fees, priceX, priceY);
     const claimedFeesUsd = feeClaims.reduce((sum, event) => {
       return sum + eventUsdValue(event, poolInfo, currentPrices);
     }, 0);
     const feesEarnedUsd = claimedFeesUsd + unclaimedFeesUsd;
     const pnlUsd = totalWithdrawnUsd + currentPositionUsd + feesEarnedUsd - totalDepositedUsd;
-    const amounts = currentTokenAmounts(positionState);
+
+    if (Math.abs(pnlUsd) > Math.max(totalDepositedUsd, totalWithdrawnUsd, 1) * 1e6) {
+      return zeroResult(positionAddress, owner, `suspect_pnl: pnl=${pnlUsd}`);
+    }
 
     return {
       positionAddress,

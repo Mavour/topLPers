@@ -25,7 +25,7 @@ function poolName(pool) {
 }
 
 function poolVolume24h(pool) {
-  return numberFrom(firstDefined(pool, ['trade_volume_24h', 'volume_24h', 'volume24h', 'volumeUsd24h']), 0);
+  return numberFrom(firstDefined(pool, ['trade_volume_24h', 'volume_24h', 'volume24h', 'volumeUsd24h', 'volume.24h']), 0);
 }
 
 export function normalizePool(pool) {
@@ -52,6 +52,7 @@ function ownerAddress(position) {
 export async function collectWalletsFromPools(pools) {
   const limit = pLimit(8);
   const walletPoolMap = new Map();
+  const walletOpenPositions = new Map();
 
   await Promise.allSettled(pools.map((pool) => limit(async () => {
     try {
@@ -61,6 +62,15 @@ export async function collectWalletsFromPools(pools) {
         if (!owner || owner.length < 32) continue;
         if (!walletPoolMap.has(owner)) walletPoolMap.set(owner, new Set());
         walletPoolMap.get(owner).add(pool.address);
+        if (!walletOpenPositions.has(owner)) walletOpenPositions.set(owner, []);
+        walletOpenPositions.get(owner).push({
+          ...pos,
+          position_address: firstDefined(pos, ['position_address', 'position', 'pubkey', 'address']),
+          pool_address: pool.address,
+          pool_name: pool.name,
+          current_value_usd: 0,
+          fees_usd: 0,
+        });
       }
       console.log(`  [pools] ${(pool.name || pool.address.slice(0, 8)).padEnd(20)} -> ${positions.length} positions`);
     } catch (error) {
@@ -68,10 +78,10 @@ export async function collectWalletsFromPools(pools) {
     }
   })));
 
-  return walletPoolMap;
+  return { walletPoolMap, walletOpenPositions };
 }
 
-export async function computeWalletPnls(wallets, solPrice, onProgress) {
+export async function computeWalletPnls(wallets, solPrice, onProgress, fallbackOpenPositions = new Map()) {
   const limit = pLimit(config.concurrency);
   const results = new Map();
   let done = 0;
@@ -83,7 +93,8 @@ export async function computeWalletPnls(wallets, solPrice, onProgress) {
         getWalletOpenPositions(wallet).catch(() => []),
       ]);
       const normalizedClosed = closed.map((position) => normalizeClosedPosition(position, solPrice));
-      const normalizedOpen = open.map((position) => normalizeOpenPosition(position, solPrice));
+      const fallbackOpen = fallbackOpenPositions.get(wallet) || [];
+      const normalizedOpen = [...open, ...fallbackOpen].map((position) => normalizeOpenPosition(position, solPrice));
       const summary = aggregateWalletPnl(wallet, normalizedClosed, normalizedOpen);
       if (summary.positionCount > 0) results.set(wallet, summary);
     } catch (error) {
@@ -103,7 +114,7 @@ export async function crawlAll(onProgress) {
   console.log(`[crawler] got ${pools.length} pools`);
 
   console.log('[crawler] collecting wallets from pools...');
-  const walletPoolMap = await collectWalletsFromPools(pools);
+  const { walletPoolMap, walletOpenPositions } = await collectWalletsFromPools(pools);
   const uniqueWallets = Array.from(walletPoolMap.keys());
   console.log(`[crawler] found ${uniqueWallets.length} unique wallets`);
 
@@ -112,7 +123,7 @@ export async function crawlAll(onProgress) {
 
   const walletPnls = await computeWalletPnls(uniqueWallets, solPrice, (done, total) => {
     if (onProgress) onProgress({ phase: 'computing_pnl', done, total, walletsFound: done });
-  });
+  }, walletOpenPositions);
 
   return {
     pools,

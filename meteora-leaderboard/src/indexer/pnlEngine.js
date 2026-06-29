@@ -3,6 +3,41 @@ function number(value, fallback = 0) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function scaleRawAmount(value, decimals) {
+  if (!value || value === 0) return 0;
+  return value / 10 ** decimals;
+}
+
+function looksLikeRawAmount(value, decimals) {
+  if (!value || value === 0) return false;
+  return value >= 10 ** (decimals + 2);
+}
+
+function tokenDecimals(row, side) {
+  const upper = side.toUpperCase();
+  const lower = side.toLowerCase();
+  return number(firstDefined(row, [
+    `token_${lower}_decimals`,
+    `token${upper}Decimals`,
+    `token${upper}.decimals`,
+    `token_${lower}.decimals`,
+    `mint_${lower}_decimals`,
+  ]), side === 'x' ? 9 : 6);
+}
+
+function safeScaleEventAmounts(amounts, poolInfo) {
+  const decX = tokenDecimals(poolInfo, 'x');
+  const decY = tokenDecimals(poolInfo, 'y');
+  return {
+    x: looksLikeRawAmount(amounts.x, decX) ? scaleRawAmount(amounts.x, decX) : amounts.x,
+    y: looksLikeRawAmount(amounts.y, decY) ? scaleRawAmount(amounts.y, decY) : amounts.y,
+  };
+}
+
+function suspectPnl(pnlUsd, depositedUsd, withdrawnUsd) {
+  return Math.abs(pnlUsd) > Math.max(depositedUsd, withdrawnUsd, 1) * 1e6;
+}
+
 function sumUsd(row, keys) {
   for (const key of keys) {
     const value = row?.[key];
@@ -40,10 +75,11 @@ function durationSeconds(start, end) {
 }
 
 export function normalizeClosedPosition(pos, solPriceUsd = 150) {
-  const pnlUsd = number(pos.pnl ?? pos.pnl_usd ?? pos.net_pnl);
+  const rawPnlUsd = number(pos.pnl ?? pos.pnl_usd ?? pos.net_pnl);
   const feesUsd = sumUsd(pos, ['total_claimed_fees', 'fees_usd', 'total_fees_usd']);
   const depositedUsd = sumUsd(pos, ['total_deposits', 'deposited_usd']);
   const withdrawnUsd = sumUsd(pos, ['total_withdraws', 'withdrawn_usd']);
+  const pnlUsd = suspectPnl(rawPnlUsd, depositedUsd, withdrawnUsd) ? 0 : rawPnlUsd;
 
   return {
     positionAddress: pos.position_address || pos.address || '',
@@ -63,11 +99,12 @@ export function normalizeClosedPosition(pos, solPriceUsd = 150) {
 }
 
 export function normalizeOpenPosition(pos, solPriceUsd = 150) {
-  const pnlUsd = number(pos.pnl ?? pos.pnl_usd ?? pos.unrealized_pnl ?? pos.net_pnl);
+  const rawPnlUsd = number(pos.pnl ?? pos.pnl_usd ?? pos.unrealized_pnl ?? pos.net_pnl);
   const feesUsd = number(pos.unclaimed_fees_usd)
     || number(pos.unclaimed_fee_x_usd) + number(pos.unclaimed_fee_y_usd)
     || number(pos.fees_usd);
   const currentValueUsd = number(pos.current_value_usd ?? pos.position_value_usd ?? pos.value_usd);
+  const pnlUsd = suspectPnl(rawPnlUsd, currentValueUsd, 0) ? 0 : rawPnlUsd;
 
   return {
     positionAddress: pos.position_address || pos.address || '',
