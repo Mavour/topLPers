@@ -72,6 +72,33 @@ function indexedPosition(row) {
   };
 }
 
+function aggregatePositionFallback(pool) {
+  if ((pool.openPositions.length + pool.closedPositions.length) > 0) return [];
+  if ((pool.positionCount || 0) <= 0) return [];
+  return [{
+    positionAddress: null,
+    poolAddress: pool.poolAddress,
+    poolName: pool.poolName,
+    status: pool.hasOpenPosition ? 'open' : 'closed',
+    aggregateOnly: true,
+    pnlUsd: cleanUsd(pool.pnlUsd),
+    pnlSol: cleanUsd(pool.pnlSol),
+    feesUsd: cleanUsd(pool.feesEarnedUsd),
+    currentValueUsd: 0,
+    depositedUsd: cleanUsd(pool.depositedUsd),
+    withdrawnUsd: cleanUsd(pool.withdrawnUsd),
+    createdAt: flexibleIso(pool.createdAt),
+    closedAt: null,
+    durationSeconds: null,
+    binRange: null,
+    setup: [
+      'AGGREGATE POOL DATA ONLY',
+      'INDIVIDUAL POSITION ADDRESS / BIN RANGE NOT INDEXED YET.',
+      'RUN A FRESH INDEX WITH A POSITION DETAIL SOURCE TO FILL EXACT RANGES.',
+    ],
+  }];
+}
+
 router.get('/:address', async (req, res) => {
   try {
     const wallet = req.params.address;
@@ -208,7 +235,7 @@ router.get('/:address', async (req, res) => {
       withdrawnUsd: cleanUsd(pool.withdrawnUsd),
       positionCount: Math.max(pool.positionCount || 0, pool.openPositions.length + pool.closedPositions.length),
       hasOpenPosition: pool.hasOpenPosition || pool.openPositions.length > 0,
-      positions: [...pool.openPositions, ...pool.closedPositions].sort((left, right) => {
+      positions: [...pool.openPositions, ...pool.closedPositions, ...aggregatePositionFallback(pool)].sort((left, right) => {
         if (left.status !== right.status) return left.status === 'open' ? -1 : 1;
         return new Date(right.createdAt || 0).getTime() - new Date(left.createdAt || 0).getTime();
       }),

@@ -552,15 +552,24 @@
             const setup = (position.setup || []).length
               ? position.setup.join('\n')
               : (position.binRange ? `BIN RANGE ${position.binRange}` : 'No bin setup data indexed yet.');
+            const positionTitle = position.aggregateOnly ? 'Aggregate pool row' : shortWallet(posAddr);
+            const actions = posAddr
+              ? `
+                  <button class="btn-copy" data-addr="${posAddr}" title="Copy position" type="button">${copyIcon}</button>
+                  <a href="https://app.meteora.ag/dlmm/${posAddr}" target="_blank" rel="noopener">Meteora</a>
+                  <a href="https://solscan.io/account/${posAddr}" target="_blank" rel="noopener">Solscan</a>
+                `
+              : '<span class="wallet-position-line">No position address</span>';
             return `
               <div class="wallet-position-row">
                 <div>
                   <div class="wallet-pool-name-row">
                     <span class="wallet-pool-toggle">${posIndex === 0 ? '&rsaquo;' : ''}</span>
                     <span class="wallet-pool-name">${escHtml(poolDisplayName(pool))}</span>
+                    ${position.aggregateOnly ? '<span class="wallet-pool-status">aggregate</span>' : ''}
                   </div>
                   <div class="wallet-position-line">
-                    ${shortWallet(posAddr)} &middot; ${escHtml(posStatus)} &middot; ${formatUtc(position.createdAt)} &rarr; ${position.closedAt ? formatUtc(position.closedAt) : 'now'}
+                    ${escHtml(positionTitle)} &middot; ${escHtml(posStatus)} &middot; ${formatUtc(position.createdAt)} &rarr; ${position.closedAt ? formatUtc(position.closedAt) : 'now'}
                   </div>
                   <div class="wallet-position-label">Entry</div>
                   <div class="wallet-position-pre">${formatUsd(position.depositedUsd || position.currentValueUsd || 0, 1).replace('+', '')} at ${formatUtc(position.createdAt)}</div>
@@ -569,9 +578,7 @@
                   <div class="wallet-position-label">Close: <span class="${posStatus === 'open' ? 'positive' : ''}">${posStatus === 'open' ? 'open' : formatUtc(position.closedAt)}</span></div>
                 </div>
                 <div class="wallet-position-actions">
-                  <button class="btn-copy" data-addr="${posAddr}" title="Copy position" type="button">${copyIcon}</button>
-                  <a href="https://app.meteora.ag/dlmm/${posAddr}" target="_blank" rel="noopener">Meteora</a>
-                  <a href="https://solscan.io/account/${posAddr}" target="_blank" rel="noopener">Solscan</a>
+                  ${actions}
                 </div>
               </div>`;
           }).join('') || '<div class="wallet-position-row"><div class="wallet-position-line">No individual positions indexed for this pool yet.</div></div>';
