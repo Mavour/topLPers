@@ -115,7 +115,7 @@
       .pool-card span { display: block; color: var(--text-mid); font-size: 13px; margin-top: 4px; }
       .drawer { position: fixed; inset: 0; display: none; background: rgba(0,0,0,0.5); }
       .drawer.active { display: block; }
-      .drawer-panel { margin-left: auto; width: min(520px, 100vw); min-height: 100vh; max-height: 100vh; overflow-y: auto; background: var(--bg-1); border-left: 1px solid var(--border-hi); padding: 24px; }
+      .drawer-panel { margin-left: auto; width: min(920px, 100vw); min-height: 100vh; max-height: 100vh; overflow-y: auto; background: var(--bg-1); border-left: 1px solid var(--border-hi); padding: 24px; }
       .drawer-head { display: flex; justify-content: space-between; gap: 16px; align-items: start; margin-bottom: 24px; }
       .drawer-actions { display: flex; gap: 8px; margin-top: 8px; }
       .drawer-actions button, .drawer-actions a { display: inline-flex; align-items: center; gap: 6px; color: var(--text-mid); text-decoration: none; background: var(--bg-2); border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; font-size: 12px; }
@@ -140,6 +140,29 @@
       .position-address { display: inline-flex; align-items: center; gap: 6px; font-family: monospace; color: var(--text-mid); font-size: 12px; }
       .position-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px 10px; color: var(--text-mid); font-size: 12px; }
       .position-grid strong { color: var(--text-hi); font-weight: 600; }
+      .wallet-pools-title { color: var(--text-mid); font-size: 14px; font-weight: 800; letter-spacing: 1px; text-transform: uppercase; margin: 4px 0 14px; }
+      .wallet-pool-list { border: 1px solid var(--border-hi); border-radius: 8px; overflow: hidden; background: #090b0a; }
+      .wallet-pool-card + .wallet-pool-card { border-top: 1px solid var(--border); }
+      .wallet-pool-card summary { list-style: none; cursor: pointer; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 16px; align-items: center; padding: 18px 20px; }
+      .wallet-pool-card summary::-webkit-details-marker { display: none; }
+      .wallet-pool-main { display: grid; gap: 8px; min-width: 0; }
+      .wallet-pool-name-row { display: flex; align-items: center; gap: 10px; min-width: 0; }
+      .wallet-pool-toggle { color: var(--text-mid); font-size: 11px; width: 14px; }
+      .wallet-pool-name { font-weight: 800; font-size: 16px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .wallet-pool-status { color: var(--text-hi); background: var(--bg-3); border-radius: 5px; padding: 3px 9px; font-size: 11px; font-weight: 800; text-transform: uppercase; }
+      .wallet-pool-status.open { color: var(--green); background: var(--green-dim); }
+      .wallet-pool-meta { color: var(--text-mid); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+      .wallet-pool-result { text-align: right; display: grid; gap: 4px; justify-items: end; }
+      .wallet-pool-result strong { font-size: 18px; }
+      .wallet-pool-result span { color: var(--text-mid); font-size: 13px; }
+      .wallet-position-list { border-top: 1px solid var(--border); padding: 0 16px 14px; display: grid; gap: 10px; }
+      .wallet-position-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px; padding: 14px 0 0; border-top: 1px solid rgba(255,255,255,0.04); }
+      .wallet-position-row:first-child { border-top: 0; }
+      .wallet-position-line { color: var(--text-mid); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; margin-top: 4px; overflow-wrap: anywhere; }
+      .wallet-position-label { color: var(--text-mid); font-size: 11px; text-transform: uppercase; letter-spacing: 1px; margin-top: 12px; }
+      .wallet-position-pre { color: var(--text-hi); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; white-space: pre-wrap; margin: 6px 0 0; line-height: 1.8; }
+      .wallet-position-actions { display: flex; align-items: start; gap: 8px; justify-content: flex-end; }
+      .wallet-position-actions a { color: var(--text-mid); text-decoration: none; border: 1px solid var(--border-hi); border-radius: 6px; padding: 7px 10px; font-size: 12px; }
       .spinner { width: 22px; height: 22px; border: 3px solid var(--border-hi); border-top-color: var(--green); border-radius: 50%; animation: spin 0.9s linear infinite; }
       @keyframes spin { to { transform: rotate(360deg); } }
       @media (max-width: 760px) {
@@ -233,10 +256,6 @@
           </div>
           <button id="closeDrawer" type="button">x</button>
         </div>
-        <div class="modal-tabs">
-          <button class="modal-tab on" id="mtOpen" type="button">Open <span class="modal-tab-badge" id="mtOpenBadge">0</span></button>
-          <button class="modal-tab" id="mtClosed" type="button">Closed <span class="modal-tab-badge" id="mtClosedBadge">0</span></button>
-        </div>
         <div id="drawerContent"></div>
       </aside>
     </section>
@@ -276,14 +295,9 @@
         closeDrawer: document.getElementById('closeDrawer'),
         drawerCopy: document.getElementById('drawerCopy'),
         drawerSolscan: document.getElementById('drawerSolscan'),
-        mtOpen: document.getElementById('mtOpen'),
-        mtClosed: document.getElementById('mtClosed'),
-        mtOpenBadge: document.getElementById('mtOpenBadge'),
-        mtClosedBadge: document.getElementById('mtClosedBadge'),
       };
       let modalWalletAddr = null;
       let modalData = null;
-      let modalTab = 'open';
       const copyIcon = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
       const checkIcon = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>';
 
@@ -338,6 +352,24 @@
         const hours = Math.floor(value / 3600);
         if (hours > 0) return `${hours}h`;
         return `${Math.floor(value / 60)}m`;
+      }
+
+      function formatUtc(ts) {
+        if (!ts) return '-';
+        const date = new Date(ts);
+        if (!Number.isFinite(date.getTime())) return '-';
+        return date.toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
+      }
+
+      function pnlPct(pnlUsd, baseUsd) {
+        const pnl = Number(pnlUsd) || 0;
+        const base = Math.abs(Number(baseUsd) || 0);
+        if (base <= 0) return null;
+        return `${pnl >= 0 ? '+' : ''}${((pnl / base) * 100).toFixed(2)}%`;
+      }
+
+      function poolDisplayName(pool) {
+        return pool.poolName || shortWallet(pool.poolAddress);
       }
 
       async function api(path, params = {}) {
@@ -491,70 +523,73 @@
 
       function renderModalPools() {
         if (!modalData) return;
-        const breakdown = modalData.poolBreakdown || [];
-        const pools = modalTab === 'open'
-          ? breakdown.filter((pool) => (pool.openPositions || []).length > 0)
-          : breakdown.filter((pool) => (pool.closedPositions || []).length > 0);
+        const pools = modalData.pools || modalData.poolBreakdown || [];
         if (!pools.length) {
-          el.drawerContent.innerHTML = `<div class="empty-state">${modalTab === 'open' ? 'No active positions in any pool.' : 'No closed positions found.'}</div>`;
+          el.drawerContent.innerHTML = '<div class="empty-state">No pool details found for this wallet.</div>';
           return;
         }
-        el.drawerContent.innerHTML = pools.map((pool) => {
+        el.drawerContent.innerHTML = `
+          <div class="wallet-pools-title">Pools (${pools.length})</div>
+          <div class="wallet-pool-list">
+            ${pools.map((pool, index) => {
           const pnlClass = pool.pnlUsd > 0 ? 'positive' : pool.pnlUsd < 0 ? 'negative' : '';
           const shortAddr = shortWallet(pool.poolAddress);
-          const positions = modalTab === 'open' ? (pool.openPositions || []) : (pool.closedPositions || []);
-          const positionRows = positions.map((position) => {
+          const positions = pool.positions || [...(pool.openPositions || []), ...(pool.closedPositions || [])];
+          const status = pool.hasOpenPosition ? 'open' : 'closed';
+          const positionRows = positions.map((position, posIndex) => {
             const posAddr = position.positionAddress || '';
-            const posMetric = modalTab === 'open'
-              ? `<span>Value <strong>${formatUsd(position.currentValueUsd, 2).replace('+', '')}</strong></span>`
-              : `<span>PnL <strong class="${(position.pnlUsd || 0) >= 0 ? 'positive' : 'negative'}">${formatUsd(position.pnlUsd, 2)}</strong></span>`;
-            const secondary = modalTab === 'open'
-              ? `<span>Fees <strong>${formatUsd(position.feesUsd, 2).replace('+', '')}</strong></span><span>Opened <strong>${timeAgoSeconds(position.createdAt)}</strong></span>`
-              : `<span>Fees <strong>${formatUsd(position.feesUsd, 2).replace('+', '')}</strong></span><span>Duration <strong>${durationText(position.durationSeconds)}</strong></span><span>Deposit <strong>${formatUsd(position.depositedUsd, 2).replace('+', '')}</strong></span><span>Withdraw <strong>${formatUsd(position.withdrawnUsd, 2).replace('+', '')}</strong></span><span>Closed <strong>${timeAgoSeconds(position.closedAt)}</strong></span>`;
+            const posStatus = position.status || (position.closedAt ? 'closed' : 'open');
+            const posPnlClass = (position.pnlUsd || 0) >= 0 ? 'positive' : 'negative';
+            const baseUsd = position.depositedUsd || position.currentValueUsd || pool.depositedUsd || pool.withdrawnUsd;
+            const pct = pnlPct(position.pnlUsd || pool.pnlUsd, baseUsd);
+            const setup = (position.setup || []).length
+              ? position.setup.join('\n')
+              : (position.binRange ? `BIN RANGE ${position.binRange}` : 'No bin setup data indexed yet.');
             return `
-              <div class="position-row">
-                <div class="position-head">
-                  <div class="position-address">
-                    <span>${shortWallet(posAddr)}</span>
-                    <button class="btn-copy" data-addr="${posAddr}" title="Copy position" type="button">${copyIcon}</button>
-                    <a href="https://app.meteora.ag/dlmm/${posAddr}" target="_blank" rel="noopener">Meteora</a>
-                    <a href="https://solscan.io/account/${posAddr}" target="_blank" rel="noopener">Solscan</a>
+              <div class="wallet-position-row">
+                <div>
+                  <div class="wallet-pool-name-row">
+                    <span class="wallet-pool-toggle">${posIndex === 0 ? '&rsaquo;' : ''}</span>
+                    <span class="wallet-pool-name">${escHtml(poolDisplayName(pool))}</span>
                   </div>
-                  <span class="${modalTab === 'open' ? 'modal-pool-status-open' : 'modal-pool-status-closed'}">${modalTab === 'open' ? 'Active' : 'Closed'}</span>
+                  <div class="wallet-position-line">
+                    ${shortWallet(posAddr)} &middot; ${escHtml(posStatus)} &middot; ${formatUtc(position.createdAt)} &rarr; ${position.closedAt ? formatUtc(position.closedAt) : 'now'}
+                  </div>
+                  <div class="wallet-position-label">Entry</div>
+                  <div class="wallet-position-pre">${formatUsd(position.depositedUsd || position.currentValueUsd || 0, 1).replace('+', '')} at ${formatUtc(position.createdAt)}</div>
+                  <div class="wallet-position-label">Set up</div>
+                  <div class="wallet-position-pre">${escHtml(setup)}</div>
+                  <div class="wallet-position-label">Close: <span class="${posStatus === 'open' ? 'positive' : ''}">${posStatus === 'open' ? 'open' : formatUtc(position.closedAt)}</span></div>
                 </div>
-                <div class="position-grid">
-                  <span>Bin <strong>${escHtml(position.binRange || '-')}</strong></span>
-                  ${posMetric}
-                  ${secondary}
+                <div class="wallet-position-actions">
+                  <button class="btn-copy" data-addr="${posAddr}" title="Copy position" type="button">${copyIcon}</button>
+                  <a href="https://app.meteora.ag/dlmm/${posAddr}" target="_blank" rel="noopener">Meteora</a>
+                  <a href="https://solscan.io/account/${posAddr}" target="_blank" rel="noopener">Solscan</a>
                 </div>
               </div>`;
-          }).join('') || `<div class="empty-state">${modalTab === 'open' ? 'No active positions in this pool.' : 'No closed positions in this pool.'}</div>`;
+          }).join('') || '<div class="wallet-position-row"><div class="wallet-position-line">No individual positions indexed for this pool yet.</div></div>';
+          const pct = pnlPct(pool.pnlUsd, pool.depositedUsd || pool.withdrawnUsd);
           return `
-            <div class="modal-pool-row">
-              <div class="modal-pool-header">
-                <div class="modal-pool-name">${escHtml(pool.poolName || shortAddr)}</div>
-                <span class="${modalTab === 'open' ? 'modal-pool-status-open' : 'modal-pool-status-closed'}">${modalTab === 'open' ? 'Active' : 'Closed'}</span>
-              </div>
-              <div class="modal-pool-addr">
-                <span>${shortAddr}</span>
-                <button class="btn-copy" data-addr="${pool.poolAddress}" title="Copy pool" type="button">${copyIcon}</button>
-                <a href="https://app.meteora.ag/dlmm/${pool.poolAddress}" target="_blank" rel="noopener">Meteora</a>
-              </div>
-              <div class="modal-pool-stats">
-                <div><div class="modal-pool-stat-label">PnL</div><div class="modal-pool-stat-val ${pnlClass}">${formatUsd(pool.pnlUsd, 2)}</div></div>
-                <div><div class="modal-pool-stat-label">Fees</div><div class="modal-pool-stat-val">${formatUsd(pool.feesEarnedUsd, 2).replace('+', '')}</div></div>
-                <div><div class="modal-pool-stat-label">Positions</div><div class="modal-pool-stat-val">${pool.positionCount || 0}</div></div>
-              </div>
-              <div class="position-list">${positionRows}</div>
-            </div>`;
-        }).join('');
-      }
-
-      function switchModalTab(tab) {
-        modalTab = tab;
-        el.mtOpen.classList.toggle('on', tab === 'open');
-        el.mtClosed.classList.toggle('on', tab === 'closed');
-        renderModalPools();
+            <details class="wallet-pool-card" ${index === 0 ? 'open' : ''}>
+              <summary>
+                <div class="wallet-pool-main">
+                  <div class="wallet-pool-name-row">
+                    <span class="wallet-pool-toggle">&or;</span>
+                    <span class="wallet-pool-name">${escHtml(poolDisplayName(pool))}</span>
+                    <span class="wallet-pool-status ${status}">${status}</span>
+                  </div>
+                  <div class="wallet-pool-meta">${shortAddr} &middot; ${pool.positionCount || positions.length || 0} position${(pool.positionCount || positions.length) === 1 ? '' : 's'} &middot; fees ${formatUsd(pool.feesEarnedUsd, 2).replace('+', '')}</div>
+                </div>
+                <div class="wallet-pool-result">
+                  <strong class="${pnlClass}">${formatUsd(pool.pnlUsd, 2)}</strong>
+                  <span>${pct || ''}</span>
+                </div>
+              </summary>
+              <div class="wallet-position-list">${positionRows}</div>
+            </details>`;
+        }).join('')}
+          </div>
+        `;
       }
 
       async function fetchPools() {
@@ -577,7 +612,6 @@
       async function openWalletModal(wallet) {
         modalWalletAddr = wallet;
         modalData = null;
-        modalTab = 'open';
         el.drawer.classList.add('active');
         el.drawerWallet.textContent = wallet;
         el.drawerSolscan.href = `https://solscan.io/account/${wallet}`;
@@ -586,12 +620,7 @@
         try {
           const result = await api(`/api/wallet/${wallet}`);
           modalData = result;
-          const openCount = result.poolBreakdown.reduce((sum, pool) => sum + (pool.openPositions || []).length, 0);
-          const closedCount = result.poolBreakdown.reduce((sum, pool) => sum + (pool.closedPositions || []).length, 0);
-          el.mtOpenBadge.textContent = String(openCount);
-          el.mtClosedBadge.textContent = String(closedCount);
-          modalTab = openCount > 0 ? 'open' : 'closed';
-          switchModalTab(modalTab);
+          renderModalPools();
         } catch (error) {
           el.drawerContent.textContent = error.message;
         }
@@ -698,8 +727,6 @@
       });
       el.closeDrawer.addEventListener('click', closeModal);
       el.drawerCopy.addEventListener('click', copyModalAddr);
-      el.mtOpen.addEventListener('click', () => switchModalTab('open'));
-      el.mtClosed.addEventListener('click', () => switchModalTab('closed'));
       el.drawer.addEventListener('click', (event) => {
         if (event.target === el.drawer) closeModal();
       });

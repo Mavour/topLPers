@@ -26,6 +26,22 @@ function firstDefined(row, keys) {
   return null;
 }
 
+function cleanUsd(value) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 0;
+  return Math.abs(parsed) > 100_000_000 ? 0 : parsed;
+}
+
+function positionStatus(position) {
+  return position.isActive ? 'open' : 'closed';
+}
+
+function positionSetup(position) {
+  const lines = [];
+  if (position.binRange) lines.push(`BIN RANGE ${position.binRange}`);
+  return lines;
+}
+
 router.get('/:address', async (req, res) => {
   try {
     const wallet = req.params.address;
@@ -95,10 +111,17 @@ router.get('/:address', async (req, res) => {
       pool.openPositions.push({
         positionAddress: position.positionAddress,
         poolAddress: position.poolAddress,
+        poolName: pool.poolName,
+        status: positionStatus(position),
+        pnlUsd: cleanUsd(position.pnlUsd),
+        pnlSol: position.pnlSol,
         currentValueUsd: position.currentValueUsd,
         feesUsd: position.feesUsd,
         binRange: position.binRange,
         createdAt: flexibleIso(position.createdAt),
+        closedAt: null,
+        durationSeconds: null,
+        setup: positionSetup(position),
       });
     }
 
@@ -122,21 +145,35 @@ router.get('/:address', async (req, res) => {
       pools.get(key).closedPositions.push({
         positionAddress: position.positionAddress,
         poolAddress: position.poolAddress,
+        poolName: pools.get(key).poolName,
+        status: positionStatus(position),
         pnlUsd: position.pnlUsd,
+        pnlSol: position.pnlSol,
         feesUsd: position.feesUsd,
+        currentValueUsd: 0,
         depositedUsd: position.depositedUsd,
         withdrawnUsd: position.withdrawnUsd,
         closedAt: flexibleIso(position.closedAt),
         createdAt: flexibleIso(position.createdAt),
         durationSeconds: position.durationSeconds,
         binRange: position.binRange,
+        setup: positionSetup(position),
       });
     }
 
     const mergedPoolBreakdown = Array.from(pools.values()).map((pool) => ({
       ...pool,
+      pnlUsd: cleanUsd(pool.pnlUsd),
+      pnlSol: cleanUsd(pool.pnlSol),
+      feesEarnedUsd: cleanUsd(pool.feesEarnedUsd),
+      depositedUsd: cleanUsd(pool.depositedUsd),
+      withdrawnUsd: cleanUsd(pool.withdrawnUsd),
       positionCount: Math.max(pool.positionCount || 0, pool.openPositions.length + pool.closedPositions.length),
       hasOpenPosition: pool.hasOpenPosition || pool.openPositions.length > 0,
+      positions: [...pool.openPositions, ...pool.closedPositions].sort((left, right) => {
+        if (left.status !== right.status) return left.status === 'open' ? -1 : 1;
+        return new Date(right.createdAt || 0).getTime() - new Date(left.createdAt || 0).getTime();
+      }),
     })).sort((left, right) => (right.pnlUsd || 0) - (left.pnlUsd || 0));
 
     res.json({
@@ -159,6 +196,7 @@ router.get('/:address', async (req, res) => {
         poolCount: new Set([...openPositions, ...closedPositions].map((position) => position.poolAddress)).size,
       },
       poolBreakdown: mergedPoolBreakdown,
+      pools: mergedPoolBreakdown,
       dataSource: summary && openPositions.length > 0 ? 'mixed' : summary ? 'indexed' : 'live',
       lastUpdated: iso(summary?.last_updated),
     });
