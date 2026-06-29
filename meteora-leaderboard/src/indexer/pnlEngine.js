@@ -63,9 +63,15 @@ function firstDefined(row, keys) {
 }
 
 function binRange(pos) {
-  const lower = firstDefined(pos, ['lower_bin_id', 'lowerBinId', 'bin_lower', 'min_bin_id']);
-  const upper = firstDefined(pos, ['upper_bin_id', 'upperBinId', 'bin_upper', 'max_bin_id']);
+  const lower = binId(pos, ['lower_bin_id', 'lowerBinId', 'bin_lower', 'min_bin_id']);
+  const upper = binId(pos, ['upper_bin_id', 'upperBinId', 'bin_upper', 'max_bin_id']);
   return lower !== null && upper !== null ? `${lower} to ${upper}` : null;
+}
+
+function binId(pos, keys) {
+  const value = firstDefined(pos, keys);
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 function durationSeconds(start, end) {
@@ -93,6 +99,8 @@ export function normalizeClosedPosition(pos, solPriceUsd = 150) {
     createdAt: pos.created_at || null,
     durationSeconds: durationSeconds(pos.created_at, pos.closed_at),
     binRange: binRange(pos),
+    lowerBinId: binId(pos, ['lower_bin_id', 'lowerBinId', 'bin_lower', 'min_bin_id']),
+    upperBinId: binId(pos, ['upper_bin_id', 'upperBinId', 'bin_upper', 'max_bin_id']),
     currentValueUsd: 0,
     isActive: false,
   };
@@ -118,6 +126,8 @@ export function normalizeOpenPosition(pos, solPriceUsd = 150) {
     createdAt: pos.created_at || null,
     durationSeconds: null,
     binRange: binRange(pos),
+    lowerBinId: binId(pos, ['lower_bin_id', 'lowerBinId', 'bin_lower', 'min_bin_id']),
+    upperBinId: binId(pos, ['upper_bin_id', 'upperBinId', 'bin_upper', 'max_bin_id']),
     currentValueUsd,
     isActive: true,
   };

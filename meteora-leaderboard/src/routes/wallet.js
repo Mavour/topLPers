@@ -1,6 +1,6 @@
 import express from 'express';
 import { getPoolPositions, getWalletClosedPositions, getWalletOpenPositions, isValidAddress } from '../api/meteora.js';
-import { getWalletPoolBreakdown, getWalletPositions, getWalletSummary } from '../db/queries.js';
+import { getPoolByAddress, getWalletPoolBreakdown, getWalletPositions, getWalletSummary } from '../db/queries.js';
 import { normalizeClosedPosition, normalizeOpenPosition } from '../indexer/pnlEngine.js';
 import { getSolPrice } from '../api/price.js';
 
@@ -36,9 +36,26 @@ function positionStatus(position) {
   return position.isActive ? 'open' : 'closed';
 }
 
-function positionSetup(position) {
+function rangeWidthPct(position, pool) {
+  const lower = Number(position.lowerBinId);
+  const upper = Number(position.upperBinId);
+  const binStep = Number(pool?.binStep);
+  if (!Number.isFinite(lower) || !Number.isFinite(upper) || !Number.isFinite(binStep) || binStep <= 0) return null;
+  const width = Math.abs(upper - lower) + 1;
+  return (Math.pow(1 + binStep / 10_000, width) - 1) * 100;
+}
+
+function pctLabel(value) {
+  if (!Number.isFinite(value)) return null;
+  const digits = Math.abs(value) >= 10 ? 1 : 2;
+  return `${value >= 0 ? '+' : ''}${value.toFixed(digits)}%`;
+}
+
+function positionSetup(position, pool = null) {
   const lines = [];
   if (position.binRange) lines.push(`BIN RANGE ${position.binRange}`);
+  const rangePct = rangeWidthPct(position, pool);
+  if (rangePct !== null) lines.push(`RANGE ${pctLabel(rangePct)} FROM ENTRY (${pool.binStep} bps/bin)`);
   return lines;
 }
 
@@ -133,9 +150,17 @@ router.get('/:address', async (req, res) => {
       return res.status(404).json({ error: 'Wallet tidak ditemukan atau belum pernah LP di Meteora' });
     }
 
+    const poolMetaCache = new Map();
+    function poolMeta(poolAddress) {
+      if (!poolAddress) return null;
+      if (!poolMetaCache.has(poolAddress)) poolMetaCache.set(poolAddress, getPoolByAddress(poolAddress));
+      return poolMetaCache.get(poolAddress);
+    }
+
     const pools = new Map(poolBreakdown.map((row) => [row.pool_address, {
       poolAddress: row.pool_address,
       poolName: row.pool_name,
+      binStep: Number(poolMeta(row.pool_address)?.bin_step || 0),
       pnlUsd: row.pnl_usd,
       pnlSol: row.pnl_sol,
       feesEarnedUsd: row.fees_earned_usd,
@@ -150,9 +175,11 @@ router.get('/:address', async (req, res) => {
     function ensurePool(poolAddress, poolName = null) {
       const key = poolAddress || 'unknown';
       if (!pools.has(key)) {
+        const meta = poolMeta(key);
         pools.set(key, {
           poolAddress: key,
-          poolName: poolName || key,
+          poolName: poolName || meta?.name || key,
+          binStep: Number(meta?.bin_step || 0),
           pnlUsd: 0,
           pnlSol: 0,
           feesEarnedUsd: 0,
@@ -197,10 +224,12 @@ router.get('/:address', async (req, res) => {
         currentValueUsd: position.currentValueUsd,
         feesUsd: position.feesUsd,
         binRange: position.binRange,
+        lowerBinId: position.lowerBinId,
+        upperBinId: position.upperBinId,
         createdAt: flexibleIso(position.createdAt),
         closedAt: null,
         durationSeconds: null,
-        setup: positionSetup(position),
+        setup: positionSetup(position, pool),
       });
     }
 
@@ -222,7 +251,9 @@ router.get('/:address', async (req, res) => {
         createdAt: flexibleIso(position.createdAt),
         durationSeconds: position.durationSeconds,
         binRange: position.binRange,
-        setup: positionSetup(position),
+        lowerBinId: position.lowerBinId,
+        upperBinId: position.upperBinId,
+        setup: positionSetup(position, pool),
       });
     }
 
