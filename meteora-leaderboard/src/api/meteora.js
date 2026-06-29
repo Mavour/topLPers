@@ -189,13 +189,6 @@ export async function getTopPools(limit = 50) {
 
 export async function getPoolPositions(poolAddress, limit = 200) {
   if (!isValidAddress(poolAddress)) throw new Error(`Invalid pool address: ${poolAddress}`);
-  try {
-    const raw = await request(`/pair/${encodeURIComponent(poolAddress)}/positions`, { limit });
-    const apiPositions = normalizeArray(raw, ['positions']);
-    if (apiPositions.length > 0) return apiPositions.slice(0, limit);
-  } catch (error) {
-    console.warn(`[meteora] positions API fallback to RPC: ${error.message}`);
-  }
   return getPoolPositionsFromRpc(poolAddress, limit);
 }
 
@@ -221,24 +214,12 @@ export async function getPositionFeeClaims(positionAddress) {
 
 export async function getPositionState(positionAddress) {
   const rpcState = await getFullPositionStateFromRpc(positionAddress);
-  if (rpcState) return rpcState;
-
-  try {
-    return await tryRequest([
-      { path: `/position/${encodeURIComponent(positionAddress)}` },
-      { path: `/positions/${encodeURIComponent(positionAddress)}` },
-    ]);
-  } catch {
-    return {};
-  }
+  return rpcState || {};
 }
 
 export async function getPool(poolAddress) {
   if (!isValidAddress(poolAddress)) throw new Error(`Invalid pool address: ${poolAddress}`);
-  return tryRequest([
-    { path: `/pair/${encodeURIComponent(poolAddress)}` },
-    { path: `/pools/${encodeURIComponent(poolAddress)}` },
-  ]);
+  return request(`/pools/${encodeURIComponent(poolAddress)}`);
 }
 
 export async function getWalletOpenPositions(wallet) {
