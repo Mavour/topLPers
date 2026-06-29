@@ -1,6 +1,6 @@
 import express from 'express';
 import { getPoolPositions, getWalletClosedPositions, getWalletOpenPositions, isValidAddress } from '../api/meteora.js';
-import { getWalletPoolBreakdown, getWalletSummary } from '../db/queries.js';
+import { getWalletPoolBreakdown, getWalletPositions, getWalletSummary } from '../db/queries.js';
 import { normalizeClosedPosition, normalizeOpenPosition } from '../indexer/pnlEngine.js';
 import { getSolPrice } from '../api/price.js';
 
@@ -42,6 +42,36 @@ function positionSetup(position) {
   return lines;
 }
 
+function parseSetup(value) {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+}
+
+function indexedPosition(row) {
+  return {
+    positionAddress: row.position_address,
+    poolAddress: row.pool_address,
+    poolName: row.pool_name,
+    status: row.status,
+    pnlUsd: cleanUsd(row.pnl_usd),
+    pnlSol: row.pnl_sol,
+    feesUsd: cleanUsd(row.fees_usd),
+    currentValueUsd: cleanUsd(row.current_value_usd),
+    depositedUsd: cleanUsd(row.deposited_usd),
+    withdrawnUsd: cleanUsd(row.withdrawn_usd),
+    createdAt: flexibleIso(row.created_at),
+    closedAt: flexibleIso(row.closed_at),
+    durationSeconds: row.duration_seconds,
+    binRange: row.bin_range,
+    setup: parseSetup(row.setup_json),
+  };
+}
+
 router.get('/:address', async (req, res) => {
   try {
     const wallet = req.params.address;
@@ -49,6 +79,7 @@ router.get('/:address', async (req, res) => {
 
     const summary = getWalletSummary(wallet);
     const poolBreakdown = getWalletPoolBreakdown(wallet);
+    const indexedPositions = getWalletPositions(wallet).map(indexedPosition);
     const solPrice = await getSolPrice();
     const [rawOpenPositions, rawClosedPositions] = await Promise.all([
       getWalletOpenPositions(wallet).catch(() => []),
@@ -89,24 +120,45 @@ router.get('/:address', async (req, res) => {
       closedPositions: [],
     }]));
 
-    for (const position of openPositions) {
-      const key = position.poolAddress || 'unknown';
+    function ensurePool(poolAddress, poolName = null) {
+      const key = poolAddress || 'unknown';
       if (!pools.has(key)) {
         pools.set(key, {
           poolAddress: key,
-          poolName: key,
+          poolName: poolName || key,
           pnlUsd: 0,
           pnlSol: 0,
           feesEarnedUsd: 0,
           depositedUsd: 0,
           withdrawnUsd: 0,
           positionCount: 0,
-          hasOpenPosition: true,
+          hasOpenPosition: false,
           openPositions: [],
           closedPositions: [],
         });
       }
-      const pool = pools.get(key);
+      return pools.get(key);
+    }
+
+    function hasPosition(pool, positionAddress) {
+      return [...pool.openPositions, ...pool.closedPositions]
+        .some((position) => position.positionAddress === positionAddress);
+    }
+
+    for (const position of indexedPositions) {
+      const pool = ensurePool(position.poolAddress, position.poolName);
+      if (hasPosition(pool, position.positionAddress)) continue;
+      if (position.status === 'open') {
+        pool.hasOpenPosition = true;
+        pool.openPositions.push(position);
+      } else {
+        pool.closedPositions.push(position);
+      }
+    }
+
+    for (const position of openPositions) {
+      const pool = ensurePool(position.poolAddress);
+      if (hasPosition(pool, position.positionAddress)) continue;
       pool.hasOpenPosition = true;
       pool.openPositions.push({
         positionAddress: position.positionAddress,
@@ -126,26 +178,12 @@ router.get('/:address', async (req, res) => {
     }
 
     for (const position of closedPositions) {
-      const key = position.poolAddress || 'unknown';
-      if (!pools.has(key)) {
-        pools.set(key, {
-          poolAddress: key,
-          poolName: key,
-          pnlUsd: position.pnlUsd,
-          pnlSol: position.pnlSol,
-          feesEarnedUsd: position.feesUsd,
-          depositedUsd: position.depositedUsd,
-          withdrawnUsd: position.withdrawnUsd,
-          positionCount: 0,
-          hasOpenPosition: false,
-          openPositions: [],
-          closedPositions: [],
-        });
-      }
-      pools.get(key).closedPositions.push({
+      const pool = ensurePool(position.poolAddress);
+      if (hasPosition(pool, position.positionAddress)) continue;
+      pool.closedPositions.push({
         positionAddress: position.positionAddress,
         poolAddress: position.poolAddress,
-        poolName: pools.get(key).poolName,
+        poolName: pool.poolName,
         status: positionStatus(position),
         pnlUsd: position.pnlUsd,
         pnlSol: position.pnlSol,

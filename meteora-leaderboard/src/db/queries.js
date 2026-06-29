@@ -32,6 +32,18 @@ function cleanWalletPnlItem(item) {
   };
 }
 
+function cleanWalletPosition(item) {
+  return {
+    ...item,
+    pnl_usd: isReasonableUsd(item.pnl_usd) ? finiteNumber(item.pnl_usd) : 0,
+    pnl_sol: finiteNumber(item.pnl_sol),
+    fees_usd: isReasonableUsd(item.fees_usd) ? finiteNumber(item.fees_usd) : 0,
+    deposited_usd: isReasonableUsd(item.deposited_usd) ? finiteNumber(item.deposited_usd) : 0,
+    withdrawn_usd: isReasonableUsd(item.withdrawn_usd) ? finiteNumber(item.withdrawn_usd) : 0,
+    current_value_usd: isReasonableUsd(item.current_value_usd) ? finiteNumber(item.current_value_usd) : 0,
+  };
+}
+
 const upsertPoolStmt = db.prepare(`
   INSERT INTO pools (
     address, name, token_x_mint, token_y_mint, token_x_symbol, token_y_symbol,
@@ -94,6 +106,34 @@ const upsertWalletPoolPnlStmt = db.prepare(`
     last_updated = excluded.last_updated
 `);
 
+const upsertWalletPositionStmt = db.prepare(`
+  INSERT INTO wallet_positions (
+    wallet, position_address, pool_address, pool_name, status, pnl_usd, pnl_sol,
+    fees_usd, deposited_usd, withdrawn_usd, current_value_usd, created_at,
+    closed_at, duration_seconds, bin_range, setup_json, last_updated
+  ) VALUES (
+    @wallet, @position_address, @pool_address, @pool_name, @status, @pnl_usd, @pnl_sol,
+    @fees_usd, @deposited_usd, @withdrawn_usd, @current_value_usd, @created_at,
+    @closed_at, @duration_seconds, @bin_range, @setup_json, @last_updated
+  )
+  ON CONFLICT(wallet, position_address) DO UPDATE SET
+    pool_address = excluded.pool_address,
+    pool_name = excluded.pool_name,
+    status = excluded.status,
+    pnl_usd = excluded.pnl_usd,
+    pnl_sol = excluded.pnl_sol,
+    fees_usd = excluded.fees_usd,
+    deposited_usd = excluded.deposited_usd,
+    withdrawn_usd = excluded.withdrawn_usd,
+    current_value_usd = excluded.current_value_usd,
+    created_at = excluded.created_at,
+    closed_at = excluded.closed_at,
+    duration_seconds = excluded.duration_seconds,
+    bin_range = excluded.bin_range,
+    setup_json = excluded.setup_json,
+    last_updated = excluded.last_updated
+`);
+
 export const insertWalletBatch = db.transaction((items) => {
   for (const item of items) {
     if (!isSuspectPnlRow(item)) upsertWalletPnlStmt.run(cleanWalletPnlItem(item));
@@ -130,6 +170,29 @@ export function upsertWalletPoolPnl(data) {
   const row = { has_open: 0, created_at: null, ...data };
   if (isSuspectPnlRow(row)) return;
   upsertWalletPoolPnlStmt.run(cleanWalletPnlItem(row));
+}
+
+export function upsertWalletPosition(data) {
+  if (!data.position_address || !data.wallet) return;
+  const row = cleanWalletPosition({
+    pool_name: null,
+    status: 'closed',
+    pnl_usd: 0,
+    pnl_sol: 0,
+    fees_usd: 0,
+    deposited_usd: 0,
+    withdrawn_usd: 0,
+    current_value_usd: 0,
+    created_at: null,
+    closed_at: null,
+    duration_seconds: null,
+    bin_range: null,
+    setup_json: '[]',
+    last_updated: Date.now(),
+    ...data,
+  });
+  if (!isReasonableUsd(row.pnl_usd) || !isReasonableUsd(row.fees_usd)) return;
+  upsertWalletPositionStmt.run(row);
 }
 
 export function getLeaderboard({ mode = 'winners', limit = 50, offset = 0, pool = null, period = '7' }) {
@@ -191,6 +254,12 @@ export function getWalletPoolBreakdown(wallet) {
   return db.prepare('SELECT * FROM wallet_pool_pnl WHERE wallet = ? ORDER BY pnl_usd DESC')
     .all(wallet)
     .filter((row) => !isSuspectPnlRow(row));
+}
+
+export function getWalletPositions(wallet) {
+  return db.prepare('SELECT * FROM wallet_positions WHERE wallet = ? ORDER BY status DESC, created_at DESC')
+    .all(wallet)
+    .filter((row) => isReasonableUsd(row.pnl_usd) && isReasonableUsd(row.fees_usd));
 }
 
 export function startIndexRun() {

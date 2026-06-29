@@ -54,6 +54,27 @@ export function initDb() {
       PRIMARY KEY (wallet, pool_address)
     );
 
+    CREATE TABLE IF NOT EXISTS wallet_positions (
+      wallet TEXT,
+      position_address TEXT,
+      pool_address TEXT,
+      pool_name TEXT,
+      status TEXT,
+      pnl_usd REAL DEFAULT 0,
+      pnl_sol REAL DEFAULT 0,
+      fees_usd REAL DEFAULT 0,
+      deposited_usd REAL DEFAULT 0,
+      withdrawn_usd REAL DEFAULT 0,
+      current_value_usd REAL DEFAULT 0,
+      created_at INTEGER,
+      closed_at INTEGER,
+      duration_seconds INTEGER,
+      bin_range TEXT,
+      setup_json TEXT,
+      last_updated INTEGER,
+      PRIMARY KEY (wallet, position_address)
+    );
+
     CREATE TABLE IF NOT EXISTS index_runs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       started_at INTEGER,
@@ -69,6 +90,8 @@ export function initDb() {
     CREATE INDEX IF NOT EXISTS idx_wallet_pool_wallet ON wallet_pool_pnl(wallet);
     CREATE INDEX IF NOT EXISTS idx_wallet_pool_pool ON wallet_pool_pnl(pool_address);
     CREATE INDEX IF NOT EXISTS idx_wallet_pool_pnl_updated ON wallet_pool_pnl(last_updated);
+    CREATE INDEX IF NOT EXISTS idx_wallet_positions_wallet ON wallet_positions(wallet);
+    CREATE INDEX IF NOT EXISTS idx_wallet_positions_pool ON wallet_positions(pool_address);
   `);
 
   try {

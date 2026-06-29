@@ -5,6 +5,7 @@ import {
   finishIndexRun,
   startIndexRun,
   upsertWalletPoolPnl,
+  upsertWalletPosition,
   upsertPool,
 } from '../db/queries.js';
 import { crawlAll } from './poolCrawler.js';
@@ -20,6 +21,20 @@ let indexState = {
 function log(level, msg, data = '') {
   const ts = new Date().toISOString().slice(11, 19);
   console.log(`[${ts}] [${level.toUpperCase()}] ${msg}`, data || '');
+}
+
+function toMs(value) {
+  if (!value) return null;
+  const numeric = Number(value);
+  if (Number.isFinite(numeric) && numeric > 0) return numeric < 10_000_000_000 ? numeric * 1000 : numeric;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function setupJson(position) {
+  const lines = [];
+  if (position.binRange) lines.push(`BIN RANGE ${position.binRange}`);
+  return JSON.stringify(lines);
 }
 
 export function getIndexState() {
@@ -108,6 +123,29 @@ export async function runFullIndex() {
             created_at: createdTimes.length ? Math.min(...createdTimes) : null,
             last_updated: Date.now(),
           });
+
+          for (const position of [...pool.openPositions, ...pool.closedPositions]) {
+            const isOpen = Boolean(position.isActive);
+            upsertWalletPosition({
+              wallet,
+              position_address: position.positionAddress,
+              pool_address: pool.poolAddress,
+              pool_name: pool.poolName || pool.poolAddress.slice(0, 8),
+              status: isOpen ? 'open' : 'closed',
+              pnl_usd: position.pnlUsd,
+              pnl_sol: position.pnlSol,
+              fees_usd: position.feesUsd,
+              deposited_usd: position.depositedUsd,
+              withdrawn_usd: position.withdrawnUsd,
+              current_value_usd: position.currentValueUsd,
+              created_at: toMs(position.createdAt),
+              closed_at: toMs(position.closedAt),
+              duration_seconds: position.durationSeconds,
+              bin_range: position.binRange,
+              setup_json: setupJson(position),
+              last_updated: Date.now(),
+            });
+          }
         }
       }
     }
