@@ -65,7 +65,7 @@ function firstDefined(row, keys) {
 function binRange(pos) {
   const lower = firstDefined(pos, ['lower_bin_id', 'lowerBinId', 'bin_lower', 'min_bin_id']);
   const upper = firstDefined(pos, ['upper_bin_id', 'upperBinId', 'bin_upper', 'max_bin_id']);
-  return lower !== null && upper !== null ? `${lower}-${upper}` : null;
+  return lower !== null && upper !== null ? `${lower} to ${upper}` : null;
 }
 
 function durationSeconds(start, end) {

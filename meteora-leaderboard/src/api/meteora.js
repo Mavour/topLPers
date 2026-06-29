@@ -5,6 +5,10 @@ const PAIR_API = process.env.METEORA_PAIR_API || 'https://dlmm-api.meteora.ag';
 const DATA_API = process.env.METEORA_DATA_API || 'https://dlmm.datapi.meteora.ag';
 const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
 export const BASE58_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+const POSITION_HEADER_BYTES = 72;
+const POSITION_BIN_RANGE_BYTES = 7920;
+const LOWER_BIN_ID_OFFSET = 7912;
+const UPPER_BIN_ID_OFFSET = 7916;
 
 const KNOWN_DECIMALS = new Map([
   ['So11111111111111111111111111111111111111112', 9],
@@ -210,8 +214,23 @@ function decodePositionAccount(row) {
   const encoded = row?.account?.data?.[0];
   if (!encoded) return null;
   const bytes = Buffer.from(encoded, 'base64');
-  if (bytes.length < 72) return null;
-  return { position: row.pubkey, position_address: row.pubkey, owner: base58Encode(bytes.subarray(40, 72)) };
+  if (bytes.length < POSITION_HEADER_BYTES) return null;
+  const poolAddress = base58Encode(bytes.subarray(8, 40));
+  const decoded = {
+    position: row.pubkey,
+    position_address: row.pubkey,
+    address: row.pubkey,
+    pool_address: poolAddress,
+    pair_address: poolAddress,
+    lb_pair: poolAddress,
+    owner: base58Encode(bytes.subarray(40, 72)),
+    source: 'solana-rpc',
+  };
+  if (bytes.length >= POSITION_BIN_RANGE_BYTES) {
+    decoded.lower_bin_id = bytes.readInt32LE(LOWER_BIN_ID_OFFSET);
+    decoded.upper_bin_id = bytes.readInt32LE(UPPER_BIN_ID_OFFSET);
+  }
+  return decoded;
 }
 
 async function getPoolPositionsFromRpc(poolAddress, limit) {
@@ -219,11 +238,26 @@ async function getPoolPositionsFromRpc(poolAddress, limit) {
     config.dlmmProgramId,
     {
       encoding: 'base64',
-      dataSlice: { offset: 0, length: 72 },
+      dataSlice: { offset: 0, length: POSITION_HEADER_BYTES },
       filters: [{ memcmp: { offset: 8, bytes: poolAddress } }],
     },
   ]);
   return (result || []).map(decodePositionAccount).filter(Boolean).slice(0, limit);
+}
+
+async function getWalletPositionsFromRpc(walletAddress, limit) {
+  const result = await rpcRequest('getProgramAccounts', [
+    config.dlmmProgramId,
+    {
+      encoding: 'base64',
+      dataSlice: { offset: 0, length: POSITION_BIN_RANGE_BYTES },
+      filters: [{ memcmp: { offset: 40, bytes: walletAddress } }],
+    },
+  ]);
+  return (result || [])
+    .map(decodePositionAccount)
+    .filter((position) => position?.owner === walletAddress)
+    .slice(0, limit);
 }
 
 export async function getActivePools() {
@@ -362,7 +396,12 @@ export async function getWalletClosedPositions(walletAddress) {
 
 export async function getWalletOpenPositions(walletAddress) {
   if (!isValidAddress(walletAddress)) return [];
-  return [];
+  const cacheKey = `wallet_open:${walletAddress}`;
+  const cached = cacheGet(cacheKey);
+  if (cached) return cached;
+  const positions = await getWalletPositionsFromRpc(walletAddress, config.maxPositions);
+  cacheSet(cacheKey, positions, 60 * 1000);
+  return positions;
 }
 
 export async function getWalletPortfolio(walletAddress) {
