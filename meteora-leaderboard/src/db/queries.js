@@ -1,6 +1,36 @@
 import { getDb } from './schema.js';
 
 const db = getDb();
+const MAX_REASONABLE_USD = 100_000_000;
+
+function finiteNumber(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function isReasonableUsd(value) {
+  const parsed = finiteNumber(value);
+  return Math.abs(parsed) <= MAX_REASONABLE_USD;
+}
+
+function isSuspectPnlRow(row) {
+  return !isReasonableUsd(row.pnl_usd)
+    || !isReasonableUsd(row.pnl_sol)
+    || !isReasonableUsd(row.fees_earned_usd)
+    || !isReasonableUsd(row.deposited_usd)
+    || !isReasonableUsd(row.withdrawn_usd);
+}
+
+function cleanWalletPnlItem(item) {
+  return {
+    ...item,
+    pnl_usd: isReasonableUsd(item.pnl_usd) ? finiteNumber(item.pnl_usd) : 0,
+    pnl_sol: isReasonableUsd(item.pnl_sol) ? finiteNumber(item.pnl_sol) : 0,
+    fees_earned_usd: isReasonableUsd(item.fees_earned_usd) ? finiteNumber(item.fees_earned_usd) : 0,
+    deposited_usd: isReasonableUsd(item.deposited_usd) ? finiteNumber(item.deposited_usd) : 0,
+    withdrawn_usd: isReasonableUsd(item.withdrawn_usd) ? finiteNumber(item.withdrawn_usd) : 0,
+  };
+}
 
 const upsertPoolStmt = db.prepare(`
   INSERT INTO pools (
@@ -65,13 +95,18 @@ const upsertWalletPoolPnlStmt = db.prepare(`
 `);
 
 export const insertWalletBatch = db.transaction((items) => {
-  for (const item of items) upsertWalletPnlStmt.run(item);
+  for (const item of items) {
+    if (!isSuspectPnlRow(item)) upsertWalletPnlStmt.run(cleanWalletPnlItem(item));
+  }
 });
 
 export const batchUpsertWalletPnl = insertWalletBatch;
 
 export const insertWalletPoolBatch = db.transaction((items) => {
-  for (const item of items) upsertWalletPoolPnlStmt.run({ has_open: 0, created_at: null, ...item });
+  for (const item of items) {
+    const row = { has_open: 0, created_at: null, ...item };
+    if (!isSuspectPnlRow(row)) upsertWalletPoolPnlStmt.run(cleanWalletPnlItem(row));
+  }
 });
 
 export function upsertPool(pool) {
@@ -87,11 +122,14 @@ export function getPoolByAddress(address) {
 }
 
 export function upsertWalletPnl(data) {
-  upsertWalletPnlStmt.run(data);
+  if (isSuspectPnlRow(data)) return;
+  upsertWalletPnlStmt.run(cleanWalletPnlItem(data));
 }
 
 export function upsertWalletPoolPnl(data) {
-  upsertWalletPoolPnlStmt.run({ has_open: 0, created_at: null, ...data });
+  const row = { has_open: 0, created_at: null, ...data };
+  if (isSuspectPnlRow(row)) return;
+  upsertWalletPoolPnlStmt.run(cleanWalletPnlItem(row));
 }
 
 export function getLeaderboard({ mode = 'winners', limit = 50, offset = 0, pool = null, period = '7' }) {
@@ -106,6 +144,7 @@ export function getLeaderboard({ mode = 'winners', limit = 50, offset = 0, pool 
 
   const grouped = new Map();
   for (const row of rows) {
+    if (isSuspectPnlRow(row)) continue;
     const existing = grouped.get(row.wallet) || {
       wallet: row.wallet,
       pnl_usd: 0,
@@ -143,11 +182,15 @@ export function getLeaderboard({ mode = 'winners', limit = 50, offset = 0, pool 
 }
 
 export function getWalletSummary(wallet) {
-  return db.prepare('SELECT * FROM wallet_pnl WHERE wallet = ?').get(wallet) || null;
+  const row = db.prepare('SELECT * FROM wallet_pnl WHERE wallet = ?').get(wallet) || null;
+  if (!row) return null;
+  return isSuspectPnlRow(row) ? cleanWalletPnlItem(row) : row;
 }
 
 export function getWalletPoolBreakdown(wallet) {
-  return db.prepare('SELECT * FROM wallet_pool_pnl WHERE wallet = ? ORDER BY pnl_usd DESC').all(wallet);
+  return db.prepare('SELECT * FROM wallet_pool_pnl WHERE wallet = ? ORDER BY pnl_usd DESC')
+    .all(wallet)
+    .filter((row) => !isSuspectPnlRow(row));
 }
 
 export function startIndexRun() {
