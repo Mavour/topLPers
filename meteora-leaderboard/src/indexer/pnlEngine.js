@@ -42,6 +42,17 @@ export function tokenSymbol(pool, side) {
   ]);
 }
 
+function tokenDecimals(pool, side) {
+  const upper = side.toUpperCase();
+  const lower = side.toLowerCase();
+  return numberFrom(nestedFirst(pool, [
+    `token_${lower}_decimals`,
+    `token${upper}Decimals`,
+    `token${upper}.decimals`,
+    `token_${lower}.decimals`,
+  ]), 9);
+}
+
 export function poolName(pool) {
   const explicit = nestedFirst(pool, ['name', 'pool_name', 'symbol']);
   if (explicit) return String(explicit);
@@ -56,6 +67,10 @@ function amountFrom(row, keys) {
   return numberFrom(nestedFirst(row, keys), 0);
 }
 
+function scaleRawAmount(value, decimals) {
+  return value / 10 ** decimals;
+}
+
 function eventTokenAmounts(event) {
   return {
     x: amountFrom(event, ['token_x_amount', 'tokenXAmount', 'amountX', 'amount_x', 'xAmount', 'total_x_amount']),
@@ -63,18 +78,28 @@ function eventTokenAmounts(event) {
   };
 }
 
-function currentTokenAmounts(state) {
+function normalizeAmountsForState(amounts, state, poolInfo) {
+  if (!state?.amountsAreRaw) return amounts;
   return {
-    x: amountFrom(state, ['totalXAmount', 'total_x_amount', 'xAmount', 'x_amount', 'tokenXAmount', 'token_x_amount', 'position.totalXAmount']),
-    y: amountFrom(state, ['totalYAmount', 'total_y_amount', 'yAmount', 'y_amount', 'tokenYAmount', 'token_y_amount', 'position.totalYAmount']),
+    x: scaleRawAmount(amounts.x, tokenDecimals(poolInfo, 'x')),
+    y: scaleRawAmount(amounts.y, tokenDecimals(poolInfo, 'y')),
   };
 }
 
-function feeTokenAmounts(row) {
-  return {
+function currentTokenAmounts(state, poolInfo) {
+  const amounts = {
+    x: amountFrom(state, ['totalXAmount', 'total_x_amount', 'xAmount', 'x_amount', 'tokenXAmount', 'token_x_amount', 'position.totalXAmount']),
+    y: amountFrom(state, ['totalYAmount', 'total_y_amount', 'yAmount', 'y_amount', 'tokenYAmount', 'token_y_amount', 'position.totalYAmount']),
+  };
+  return normalizeAmountsForState(amounts, state, poolInfo);
+}
+
+function feeTokenAmounts(row, poolInfo = null) {
+  const amounts = {
     x: amountFrom(row, ['fee_x_amount', 'feeXAmount', 'fees_x_amount', 'feesXAmount', 'unclaimedFeeX', 'unclaimed_fee_x', 'fee_x']),
     y: amountFrom(row, ['fee_y_amount', 'feeYAmount', 'fees_y_amount', 'feesYAmount', 'unclaimedFeeY', 'unclaimed_fee_y', 'fee_y']),
   };
+  return poolInfo ? normalizeAmountsForState(amounts, row, poolInfo) : amounts;
 }
 
 function usdValue(amounts, priceX, priceY) {
@@ -134,9 +159,9 @@ export async function computePositionPnl(positionAddress, poolInfo, currentPrice
 
     const depositedUsd = deposits.reduce((sum, event) => sum + eventUsdValue(event, poolInfo, currentPrices, solPrice), 0);
     const withdrawnUsd = withdraws.reduce((sum, event) => sum + eventUsdValue(event, poolInfo, currentPrices, solPrice), 0);
-    const currentAmounts = currentTokenAmounts(positionState);
+    const currentAmounts = currentTokenAmounts(positionState, poolInfo);
     const currentUsd = usdValue(currentAmounts, priceX, priceY);
-    const unclaimedUsd = usdValue(feeTokenAmounts(positionState), priceX, priceY);
+    const unclaimedUsd = usdValue(feeTokenAmounts(positionState, poolInfo), priceX, priceY);
     const claimedFeesUsd = feeClaims.reduce((sum, event) => sum + eventUsdValue(event, poolInfo, currentPrices, solPrice), 0)
       + withdraws.reduce((sum, event) => sum + usdValue(feeTokenAmounts(event), priceX, priceY), 0);
     const feesEarnedUsd = claimedFeesUsd + unclaimedUsd;

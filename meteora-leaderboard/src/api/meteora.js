@@ -3,6 +3,7 @@ import { config } from '../config.js';
 const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
 export const BASE58_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const positionStateCache = new Map();
 
 export function isValidAddress(value) {
   return typeof value === 'string' && BASE58_RE.test(value.trim());
@@ -110,6 +111,52 @@ async function rpcRequest(method, params) {
   }
 }
 
+function decodePositionStateFromAccount(data) {
+  if (!data) return null;
+  try {
+    const bytes = Buffer.from(data, 'base64');
+    if (bytes.length < 96) return null;
+    const readU64 = (buf, offset) => {
+      let value = 0n;
+      for (let index = 7; index >= 0; index -= 1) {
+        value = (value << 8n) + BigInt(buf[offset + index]);
+      }
+      return value;
+    };
+
+    return {
+      totalXAmount: Number(readU64(bytes, 0)),
+      totalYAmount: Number(readU64(bytes, 8)),
+      unclaimedFeeX: Number(readU64(bytes, 16)),
+      unclaimedFeeY: Number(readU64(bytes, 24)),
+      amountsAreRaw: true,
+      source: 'solana-rpc',
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function getFullPositionStateFromRpc(positionAddress) {
+  const cacheKey = `fullpos:${positionAddress}`;
+  const cached = positionStateCache.get(cacheKey);
+  if (cached && Date.now() - cached.ts < 30_000) return cached.value;
+
+  let value = null;
+  try {
+    const result = await rpcRequest('getAccountInfo', [
+      positionAddress,
+      { encoding: 'base64', dataSlice: { offset: 0, length: 96 } },
+    ]);
+    value = decodePositionStateFromAccount(result?.value?.data?.[0]);
+  } catch {
+    value = null;
+  }
+
+  positionStateCache.set(cacheKey, { value, ts: Date.now() });
+  return value;
+}
+
 function decodePositionAccount(row) {
   const encoded = row?.account?.data?.[0];
   if (!encoded) return null;
@@ -173,6 +220,9 @@ export async function getPositionFeeClaims(positionAddress) {
 }
 
 export async function getPositionState(positionAddress) {
+  const rpcState = await getFullPositionStateFromRpc(positionAddress);
+  if (rpcState) return rpcState;
+
   try {
     return await tryRequest([
       { path: `/position/${encodeURIComponent(positionAddress)}` },
@@ -193,13 +243,5 @@ export async function getPool(poolAddress) {
 
 export async function getWalletOpenPositions(wallet) {
   if (!isValidAddress(wallet)) throw new Error(`Invalid wallet address: ${wallet}`);
-  try {
-    const raw = await tryRequest([
-      { path: `/position/open/${encodeURIComponent(wallet)}` },
-      { path: `/positions/open/${encodeURIComponent(wallet)}` },
-    ]);
-    return normalizeArray(raw, ['positions']);
-  } catch {
-    return [];
-  }
+  return [];
 }
