@@ -105,6 +105,7 @@ function aggregateByWallet(positionPnls) {
       pnlSol: 0,
       pnlWithUnclaimedFeesUsd: 0,
       pnlWithUnclaimedFeesSol: 0,
+      claimedFeesUsd: 0,
       feesEarnedUsd: 0,
       unclaimedFeesUsd: 0,
       positionCount: 0,
@@ -122,6 +123,7 @@ function aggregateByWallet(positionPnls) {
     existing.pnlSol += item.pnlSol || 0;
     existing.pnlWithUnclaimedFeesUsd += item.pnlWithUnclaimedFeesUsd || item.pnlUsd || 0;
     existing.pnlWithUnclaimedFeesSol += item.pnlWithUnclaimedFeesSol || item.pnlSol || 0;
+    existing.claimedFeesUsd += item.claimedFeesUsd || 0;
     existing.feesEarnedUsd += item.feesEarnedUsd || 0;
     existing.unclaimedFeesUsd += item.unclaimedFeesUsd || 0;
     existing.totalDepositedUsd += item.totalDepositedUsd || 0;
@@ -207,6 +209,7 @@ export async function buildPoolLeaderboard(poolAddress, opts = {}) {
       currentXAmount: 0,
       currentYAmount: 0,
       unclaimedFeesUsd: 0,
+      claimedFeesUsd: 0,
       feesEarnedUsd: 0,
       depositCount: 0,
       withdrawCount: 0,
@@ -255,6 +258,7 @@ export async function getMultiPoolLeaderboard(poolAddresses, opts = {}) {
         pnlSol: 0,
         pnlWithUnclaimedFeesUsd: 0,
         pnlWithUnclaimedFeesSol: 0,
+        claimedFeesUsd: 0,
         feesEarnedUsd: 0,
         unclaimedFeesUsd: 0,
         positionCount: 0,
@@ -271,6 +275,7 @@ export async function getMultiPoolLeaderboard(poolAddresses, opts = {}) {
       existing.pnlSol += row.pnlSol || 0;
       existing.pnlWithUnclaimedFeesUsd += row.pnlWithUnclaimedFeesUsd || row.pnlUsd || 0;
       existing.pnlWithUnclaimedFeesSol += row.pnlWithUnclaimedFeesSol || row.pnlSol || 0;
+      existing.claimedFeesUsd += row.claimedFeesUsd || 0;
       existing.feesEarnedUsd += row.feesEarnedUsd || 0;
       existing.unclaimedFeesUsd += row.unclaimedFeesUsd || 0;
       existing.positionCount += row.positionCount || 0;
@@ -339,6 +344,7 @@ export async function buildWalletPoolPnl(poolAddress, walletAddress, opts = {}) 
       currentXAmount: 0,
       currentYAmount: 0,
       unclaimedFeesUsd: 0,
+      claimedFeesUsd: 0,
       feesEarnedUsd: 0,
       depositCount: 0,
       withdrawCount: 0,

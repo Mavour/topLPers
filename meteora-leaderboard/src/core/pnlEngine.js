@@ -199,6 +199,7 @@ function zeroResult(positionAddress, owner, error = null) {
     totalWithdrawnUsd: 0,
     currentPositionUsd: 0,
     unclaimedFeesUsd: 0,
+    claimedFeesUsd: 0,
     feesEarnedUsd: 0,
     depositCount: 0,
     withdrawCount: 0,
@@ -239,11 +240,11 @@ export async function computePositionPnl(positionAddress, owner, poolInfo, curre
 
     const currentPositionUsd = usdValue(currentTokenAmounts(positionState), priceX, priceY);
     const unclaimedFeesUsd = usdValue(feeTokenAmounts(positionState), priceX, priceY);
-    const feesEarnedUsd = feeClaims.reduce((sum, event) => {
+    const claimedFeesUsd = feeClaims.reduce((sum, event) => {
       return sum + eventUsdValue(event, poolInfo, currentPrices);
     }, 0);
+    const feesEarnedUsd = claimedFeesUsd + unclaimedFeesUsd;
     const pnlUsd = totalWithdrawnUsd + currentPositionUsd + feesEarnedUsd - totalDepositedUsd;
-    const pnlWithUnclaimedFeesUsd = pnlUsd + unclaimedFeesUsd;
     const amounts = currentTokenAmounts(positionState);
 
     return {
@@ -251,12 +252,13 @@ export async function computePositionPnl(positionAddress, owner, poolInfo, curre
       owner,
       pnlUsd,
       pnlSol: solPriceUsd > 0 ? pnlUsd / solPriceUsd : 0,
-      pnlWithUnclaimedFeesUsd,
-      pnlWithUnclaimedFeesSol: solPriceUsd > 0 ? pnlWithUnclaimedFeesUsd / solPriceUsd : 0,
+      pnlWithUnclaimedFeesUsd: pnlUsd,
+      pnlWithUnclaimedFeesSol: solPriceUsd > 0 ? pnlUsd / solPriceUsd : 0,
       totalDepositedUsd,
       totalWithdrawnUsd,
       currentPositionUsd,
       unclaimedFeesUsd,
+      claimedFeesUsd,
       feesEarnedUsd,
       depositCount: deposits.length,
       withdrawCount: withdraws.length,
