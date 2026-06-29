@@ -707,11 +707,17 @@
         if (event.key === 'Escape') closeModal();
       });
 
-      setInterval(fetchStatus, 10_000);
-      document.addEventListener('DOMContentLoaded', () => {
+      function boot() {
         fetchStatus();
         fetchLeaderboard();
-      });
+      }
+
+      setInterval(fetchStatus, 10_000);
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', boot, { once: true });
+      } else {
+        boot();
+      }
     </script>
   </body>
 </html>

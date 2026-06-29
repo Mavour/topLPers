@@ -184,4 +184,8 @@ el.loadPoolButton?.addEventListener('click', () => {
   fetchLeaderboard();
 });
 
-document.addEventListener('DOMContentLoaded', fetchLeaderboard);
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', fetchLeaderboard, { once: true });
+} else {
+  fetchLeaderboard();
+}
