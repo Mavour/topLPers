@@ -64,6 +64,7 @@ router.get('/:address', async (req, res) => {
             poolAddress: position.poolAddress,
             currentValueUsd: position.currentValueUsd,
             feesUsd: position.feesUsd,
+            binRange: position.binRange,
             createdAt: position.createdAt,
           })),
         closedPositions: closedPositions
@@ -76,6 +77,8 @@ router.get('/:address', async (req, res) => {
             withdrawnUsd: position.withdrawnUsd,
             closedAt: position.closedAt,
             createdAt: position.createdAt,
+            durationSeconds: position.durationSeconds,
+            binRange: position.binRange,
           })),
       })),
       dataSource: summary && openPositions.length > 0 ? 'mixed' : summary ? 'indexed' : 'live',

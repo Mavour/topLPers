@@ -99,10 +99,10 @@
         color: var(--text-lo);
         padding: 2px 4px;
         border-radius: 4px;
-        opacity: 0;
+        opacity: 0.6;
         transition: opacity .15s, color .15s, background .15s;
       }
-      .wallet-cell:hover .btn-copy { opacity: 1; }
+      .wallet-cell:hover .btn-copy, .modal-pool-addr:hover .btn-copy { opacity: 1; }
       .btn-copy:hover { color: var(--text-mid); background: var(--bg-3); }
       .btn-copy.copied { color: var(--green); opacity: 1; }
       .rank { color: var(--amber); font-weight: 800; }
@@ -134,6 +134,12 @@
       .modal-pool-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
       .modal-pool-stat-label { color: var(--text-lo); font-size: 10px; text-transform: uppercase; letter-spacing: 1px; }
       .modal-pool-stat-val { margin-top: 3px; font-size: 13px; }
+      .position-list { display: grid; gap: 8px; margin-top: 12px; }
+      .position-row { border: 1px solid var(--border); border-radius: 8px; padding: 10px; background: rgba(255,255,255,0.02); }
+      .position-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+      .position-address { display: inline-flex; align-items: center; gap: 6px; font-family: monospace; color: var(--text-mid); font-size: 12px; }
+      .position-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px 10px; color: var(--text-mid); font-size: 12px; }
+      .position-grid strong { color: var(--text-hi); font-weight: 600; }
       .spinner { width: 22px; height: 22px; border: 3px solid var(--border-hi); border-top-color: var(--green); border-radius: 50%; animation: spin 0.9s linear infinite; }
       @keyframes spin { to { transform: rotate(360deg); } }
       @media (max-width: 760px) {
@@ -165,10 +171,8 @@
           <button type="button" data-mode="losers">Top losers</button>
         </div>
         <div class="segmented">
-          <button class="active" type="button" data-period="all">All</button>
-          <button type="button" data-period="7">7d</button>
-          <button type="button" data-period="30">30d</button>
-          <button type="button" data-period="90">90d</button>
+          <button type="button" data-period="1">1d</button>
+          <button class="active" type="button" data-period="7">7d</button>
         </div>
         <button id="refreshButton" type="button">Refresh</button>
       </section>
@@ -240,6 +244,7 @@
     <script>
       const state = {
         mode: 'winners',
+        period: '7',
         activeTab: 'leaderboard',
         poolFilter: null,
         offset: 0,
@@ -312,6 +317,23 @@
         return `${hours}h ago`;
       }
 
+      function timeAgoSeconds(ts) {
+        if (!ts) return '-';
+        const numeric = Number(ts);
+        const ms = numeric < 10_000_000_000 ? numeric * 1000 : numeric;
+        return timeAgo(ms);
+      }
+
+      function durationText(seconds) {
+        const value = Number(seconds) || 0;
+        if (value <= 0) return '-';
+        const days = Math.floor(value / 86400);
+        if (days > 0) return `${days}d`;
+        const hours = Math.floor(value / 3600);
+        if (hours > 0) return `${hours}h`;
+        return `${Math.floor(value / 60)}m`;
+      }
+
       async function api(path, params = {}) {
         const url = new URL(path, window.location.origin);
         Object.entries(params).forEach(([key, value]) => {
@@ -362,7 +384,7 @@
             <td class="${pnlClass}">${formatSol(row.pnlSol)}</td>
             <td class="${pnlClass}">${formatUsd(row.pnlUsd, 2)}</td>
             <td>${formatUsd(row.feesEarnedUsd, 2).replace('+', '')}</td>
-            <td>${row.poolCount || 1}</td>
+            <td>${escHtml(row.bestPoolName || '-')}</td>
             <td><span class="pos-pill">${row.positionCount || 0}</span></td>
           `;
           el.tableBody.appendChild(tr);
@@ -382,6 +404,7 @@
         try {
           const result = await api('/api/leaderboard', {
             mode: state.mode,
+            period: state.period,
             limit: state.limit,
             offset: state.offset,
             pool: state.poolFilter,
@@ -468,6 +491,32 @@
         el.drawerContent.innerHTML = pools.map((pool) => {
           const pnlClass = pool.pnlUsd > 0 ? 'positive' : pool.pnlUsd < 0 ? 'negative' : '';
           const shortAddr = shortWallet(pool.poolAddress);
+          const positions = modalTab === 'open' ? (pool.openPositions || []) : (pool.closedPositions || []);
+          const positionRows = positions.map((position) => {
+            const posAddr = position.positionAddress || '';
+            const posMetric = modalTab === 'open'
+              ? `<span>Value <strong>${formatUsd(position.currentValueUsd, 2).replace('+', '')}</strong></span>`
+              : `<span>PnL <strong class="${(position.pnlUsd || 0) >= 0 ? 'positive' : 'negative'}">${formatUsd(position.pnlUsd, 2)}</strong></span>`;
+            const secondary = modalTab === 'open'
+              ? `<span>Fees <strong>${formatUsd(position.feesUsd, 2).replace('+', '')}</strong></span><span>Opened <strong>${timeAgoSeconds(position.createdAt)}</strong></span>`
+              : `<span>Fees <strong>${formatUsd(position.feesUsd, 2).replace('+', '')}</strong></span><span>Duration <strong>${durationText(position.durationSeconds)}</strong></span><span>Deposit <strong>${formatUsd(position.depositedUsd, 2).replace('+', '')}</strong></span><span>Withdraw <strong>${formatUsd(position.withdrawnUsd, 2).replace('+', '')}</strong></span><span>Closed <strong>${timeAgoSeconds(position.closedAt)}</strong></span>`;
+            return `
+              <div class="position-row">
+                <div class="position-head">
+                  <div class="position-address">
+                    <span>${shortWallet(posAddr)}</span>
+                    <button class="btn-copy copied" data-addr="${posAddr}" type="button">${copyIcon}</button>
+                    <a href="https://app.meteora.ag/dlmm/${posAddr}" target="_blank" rel="noopener">Meteora</a>
+                  </div>
+                  <span class="${modalTab === 'open' ? 'modal-pool-status-open' : 'modal-pool-status-closed'}">${modalTab === 'open' ? 'Active' : 'Closed'}</span>
+                </div>
+                <div class="position-grid">
+                  <span>Bin <strong>${escHtml(position.binRange || '-')}</strong></span>
+                  ${posMetric}
+                  ${secondary}
+                </div>
+              </div>`;
+          }).join('') || `<div class="empty-state">${modalTab === 'open' ? 'No active positions in this pool.' : 'No closed positions in this pool.'}</div>`;
           return `
             <div class="modal-pool-row">
               <div class="modal-pool-header">
@@ -484,6 +533,7 @@
                 <div><div class="modal-pool-stat-label">Fees</div><div class="modal-pool-stat-val">${formatUsd(pool.feesEarnedUsd, 2).replace('+', '')}</div></div>
                 <div><div class="modal-pool-stat-label">Positions</div><div class="modal-pool-stat-val">${pool.positionCount || 0}</div></div>
               </div>
+              <div class="position-list">${positionRows}</div>
             </div>`;
         }).join('');
       }
@@ -610,7 +660,10 @@
       document.querySelectorAll('[data-tab]').forEach((button) => button.addEventListener('click', () => setTab(button.dataset.tab)));
       document.querySelectorAll('[data-period]').forEach((button) => {
         button.addEventListener('click', () => {
+          state.period = button.dataset.period;
+          state.offset = 0;
           document.querySelectorAll('[data-period]').forEach((item) => item.classList.toggle('active', item === button));
+          fetchLeaderboard();
         });
       });
       el.refreshButton.addEventListener('click', () => fetchLeaderboard());

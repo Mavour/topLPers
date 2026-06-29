@@ -15,6 +15,30 @@ function sumUsd(row, keys) {
   return 0;
 }
 
+function firstDefined(row, keys) {
+  for (const key of keys) {
+    if (key.includes('.')) {
+      const value = key.split('.').reduce((acc, part) => acc?.[part], row);
+      if (value !== undefined && value !== null && value !== '') return value;
+    } else if (row?.[key] !== undefined && row?.[key] !== null && row?.[key] !== '') {
+      return row[key];
+    }
+  }
+  return null;
+}
+
+function binRange(pos) {
+  const lower = firstDefined(pos, ['lower_bin_id', 'lowerBinId', 'bin_lower', 'min_bin_id']);
+  const upper = firstDefined(pos, ['upper_bin_id', 'upperBinId', 'bin_upper', 'max_bin_id']);
+  return lower !== null && upper !== null ? `${lower}-${upper}` : null;
+}
+
+function durationSeconds(start, end) {
+  const created = number(start);
+  const closed = number(end);
+  return created > 0 && closed > created ? closed - created : null;
+}
+
 export function normalizeClosedPosition(pos, solPriceUsd = 150) {
   const pnlUsd = number(pos.pnl ?? pos.pnl_usd ?? pos.net_pnl);
   const feesUsd = sumUsd(pos, ['total_claimed_fees', 'fees_usd', 'total_fees_usd']);
@@ -31,6 +55,8 @@ export function normalizeClosedPosition(pos, solPriceUsd = 150) {
     withdrawnUsd,
     closedAt: pos.closed_at || null,
     createdAt: pos.created_at || null,
+    durationSeconds: durationSeconds(pos.created_at, pos.closed_at),
+    binRange: binRange(pos),
     currentValueUsd: 0,
     isActive: false,
   };
@@ -53,6 +79,8 @@ export function normalizeOpenPosition(pos, solPriceUsd = 150) {
     withdrawnUsd: 0,
     closedAt: null,
     createdAt: pos.created_at || null,
+    durationSeconds: null,
+    binRange: binRange(pos),
     currentValueUsd,
     isActive: true,
   };

@@ -49,6 +49,7 @@ export function initDb() {
       withdrawn_usd REAL DEFAULT 0,
       position_count INTEGER DEFAULT 0,
       has_open INTEGER DEFAULT 0,
+      created_at INTEGER,
       last_updated INTEGER,
       PRIMARY KEY (wallet, pool_address)
     );
@@ -67,10 +68,16 @@ export function initDb() {
     CREATE INDEX IF NOT EXISTS idx_wallet_pnl ON wallet_pnl(pnl_usd);
     CREATE INDEX IF NOT EXISTS idx_wallet_pool_wallet ON wallet_pool_pnl(wallet);
     CREATE INDEX IF NOT EXISTS idx_wallet_pool_pool ON wallet_pool_pnl(pool_address);
+    CREATE INDEX IF NOT EXISTS idx_wallet_pool_pnl_updated ON wallet_pool_pnl(last_updated);
   `);
 
   try {
     db.prepare('ALTER TABLE wallet_pool_pnl ADD COLUMN has_open INTEGER DEFAULT 0').run();
+  } catch {
+    // Column already exists.
+  }
+  try {
+    db.prepare('ALTER TABLE wallet_pool_pnl ADD COLUMN created_at INTEGER').run();
   } catch {
     // Column already exists.
   }

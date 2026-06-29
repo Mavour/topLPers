@@ -46,10 +46,10 @@ const upsertWalletPnlStmt = db.prepare(`
 const upsertWalletPoolPnlStmt = db.prepare(`
   INSERT INTO wallet_pool_pnl (
     wallet, pool_address, pool_name, pnl_usd, pnl_sol, fees_earned_usd,
-    deposited_usd, withdrawn_usd, position_count, has_open, last_updated
+    deposited_usd, withdrawn_usd, position_count, has_open, created_at, last_updated
   ) VALUES (
     @wallet, @pool_address, @pool_name, @pnl_usd, @pnl_sol, @fees_earned_usd,
-    @deposited_usd, @withdrawn_usd, @position_count, @has_open, @last_updated
+    @deposited_usd, @withdrawn_usd, @position_count, @has_open, @created_at, @last_updated
   )
   ON CONFLICT(wallet, pool_address) DO UPDATE SET
     pool_name = excluded.pool_name,
@@ -60,6 +60,7 @@ const upsertWalletPoolPnlStmt = db.prepare(`
     withdrawn_usd = excluded.withdrawn_usd,
     position_count = excluded.position_count,
     has_open = excluded.has_open,
+    created_at = excluded.created_at,
     last_updated = excluded.last_updated
 `);
 
@@ -70,7 +71,7 @@ export const insertWalletBatch = db.transaction((items) => {
 export const batchUpsertWalletPnl = insertWalletBatch;
 
 export const insertWalletPoolBatch = db.transaction((items) => {
-  for (const item of items) upsertWalletPoolPnlStmt.run({ has_open: 0, ...item });
+  for (const item of items) upsertWalletPoolPnlStmt.run({ has_open: 0, created_at: null, ...item });
 });
 
 export function upsertPool(pool) {
@@ -90,22 +91,54 @@ export function upsertWalletPnl(data) {
 }
 
 export function upsertWalletPoolPnl(data) {
-  upsertWalletPoolPnlStmt.run({ has_open: 0, ...data });
+  upsertWalletPoolPnlStmt.run({ has_open: 0, created_at: null, ...data });
 }
 
-export function getLeaderboard({ mode = 'winners', limit = 50, offset = 0, pool = null }) {
+export function getLeaderboard({ mode = 'winners', limit = 50, offset = 0, pool = null, period = '7' }) {
   const direction = mode === 'losers' ? 'ASC' : 'DESC';
-  const source = pool ? 'wallet_pool_pnl' : 'wallet_pnl';
-  const where = pool ? 'WHERE pool_address = ?' : '';
-  const args = pool ? [pool, limit, offset] : [limit, offset];
+  const days = String(period) === '1' ? 1 : 7;
+  const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
   const rows = db.prepare(`
-    SELECT * FROM ${source}
-    ${where}
-    ORDER BY pnl_usd ${direction}
-    LIMIT ? OFFSET ?
-  `).all(...args);
-  const total = db.prepare(`SELECT COUNT(*) AS count FROM ${source} ${where}`).get(...(pool ? [pool] : [])).count;
-  return { rows, total };
+    SELECT * FROM wallet_pool_pnl
+    WHERE last_updated >= ? ${pool ? 'AND pool_address = ?' : ''}
+  `).all(...(pool ? [cutoff, pool] : [cutoff]));
+
+  const grouped = new Map();
+  for (const row of rows) {
+    const existing = grouped.get(row.wallet) || {
+      wallet: row.wallet,
+      pnl_usd: 0,
+      pnl_sol: 0,
+      fees_earned_usd: 0,
+      deposited_usd: 0,
+      withdrawn_usd: 0,
+      position_count: 0,
+      pool_count: 0,
+      best_pool_name: row.pool_name,
+      best_pool_address: row.pool_address,
+      best_pool_pnl_usd: Number.NEGATIVE_INFINITY,
+      last_updated: 0,
+    };
+    existing.pnl_usd += row.pnl_usd || 0;
+    existing.pnl_sol += row.pnl_sol || 0;
+    existing.fees_earned_usd += row.fees_earned_usd || 0;
+    existing.deposited_usd += row.deposited_usd || 0;
+    existing.withdrawn_usd += row.withdrawn_usd || 0;
+    existing.position_count += row.position_count || 0;
+    existing.pool_count += 1;
+    existing.last_updated = Math.max(existing.last_updated || 0, row.last_updated || 0);
+    if ((row.pnl_usd || 0) > existing.best_pool_pnl_usd) {
+      existing.best_pool_pnl_usd = row.pnl_usd || 0;
+      existing.best_pool_name = row.pool_name || row.pool_address;
+      existing.best_pool_address = row.pool_address;
+    }
+    grouped.set(row.wallet, existing);
+  }
+
+  const sorted = Array.from(grouped.values()).sort((left, right) => (
+    direction === 'ASC' ? left.pnl_usd - right.pnl_usd : right.pnl_usd - left.pnl_usd
+  ));
+  return { rows: sorted.slice(offset, offset + limit), total: sorted.length };
 }
 
 export function getWalletSummary(wallet) {
