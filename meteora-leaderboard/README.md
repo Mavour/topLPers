@@ -1,121 +1,50 @@
-# Meteora DLMM LP Leaderboard
+# Meteora DLMM LP Leaderboard V3
 
-Standalone Node.js web dashboard and CLI for building a Meteora DLMM LP leaderboard from pool positions. It does not use the old global `/leaderboard` endpoint because that endpoint is no longer publicly available.
+Self-indexed Meteora DLMM leaderboard. The backend crawls top Meteora pools, computes wallet PnL from position history, stores results in SQLite, and serves a zero-build frontend.
 
-## How PnL Is Computed
-
-The tool fetches active positions for a pool, then fetches deposits, withdraws, and current position state for each position. PnL is computed per position and aggregated by wallet:
-
-```text
-PnL = total_value_withdrawn - total_value_deposited + current_position_value + claimed_fees
-```
-
-Historical deposit and withdraw conversion uses Meteora position history USD fields when available. Current position value and unclaimed fees are decoded on-chain with the Meteora DLMM SDK, then converted to USD with Jupiter prices or Meteora pool token prices as fallback. Unclaimed fees are shown in the Fees column but are not added to the main PnL ranking.
-
-## Requirements
-
-- Node.js 20+
-- PM2 for keeping the web dashboard online
-
-## Installation
+## Install
 
 ```bash
 npm install
 cp .env.example .env
 ```
 
-Edit `.env` if you want to override the default pool, concurrency, or RPC endpoint.
+Edit `.env` and set a random `ADMIN_TOKEN`.
 
-For live LP valuation, use a private RPC. Public Solana RPC commonly returns `429` on DLMM position scans:
-
-```dotenv
-HELIUS_API_KEY=your_key_here
-# or
-SOLANA_RPC_URL=https://your-private-mainnet-rpc
-```
-
-## Web Dashboard
+## Run
 
 ```bash
-npm start
+node src/server.js
 ```
 
-Default URL:
+Open:
 
 ```text
-http://localhost:7777
+http://localhost:3001
 ```
 
-PM2 deployment:
+The first run starts automatically when the database is empty. It can take 10-30 minutes depending on `TOP_POOLS_LIMIT`, `MAX_POSITIONS_PER_POOL`, RPC speed, and Meteora rate limits.
+
+## Manual Index
 
 ```bash
-pm2 start ecosystem.config.cjs
+curl -X POST http://localhost:3001/api/index/run \
+  -H "Authorization: Bearer your_admin_token"
+```
+
+## API
+
+- `GET /api/status`
+- `GET /api/pools`
+- `GET /api/leaderboard?mode=winners&limit=50`
+- `GET /api/leaderboard?mode=losers&pool=<poolAddress>`
+- `GET /api/wallet/:address`
+- `POST /api/index/run`
+
+## PM2
+
+```bash
+pm2 start src/server.js --name meteora-lb
 pm2 save
-```
-
-## CLI Usage
-
-```bash
-node src/cli.js
-node src/cli.js --losers
-node src/cli.js --pool 5rCf1DM8LjKTw4YqhnoLcngyZYeNnQqztScTogYHAS6
-node src/cli.js --pools addr1,addr2 --limit 50
-node src/cli.js --search "SOL-USDC"
-node src/cli.js --top-pools
-node src/cli.js --json > output.json
-```
-
-Supported options:
-
-```text
---pool <address>         Pool address
---pools <addr,addr,...>  Multiple pool addresses
---mode winners|losers    Sort order
---losers                 Shortcut for --mode losers
---limit <number>         Max positions to scan
---top-pools              Show top pools by volume
---search <query>         Search pool by name, symbol, mint, or address
---json                   Output JSON
---no-cache               Clear in-memory cache before run
---help                   Show help
-```
-
-## API Endpoints Used
-
-Meteora data requests use:
-
-```text
-https://dlmm.datapi.meteora.ag
-```
-
-Endpoints:
-
-```text
-GET /pools?page=1&page_size=50
-GET /pools/{pool_address}
-GET /positions/{position_address}/historical
-POST Solana RPC getProgramAccounts for DLMM position discovery
-Meteora DLMM SDK getPosition for live LP value
-```
-
-Token prices use:
-
-```text
-GET https://api.jup.ag/price/v3?ids={mintAddress},{mintAddress2}
-```
-
-## Known Limitations
-
-- Historical PnL for non-stable pairs may be approximate when the event data does not include enough USD context.
-- Position discovery uses Solana RPC account filters because the public pool positions REST endpoint currently returns 404.
-- Meteora rate limit is around 30 RPS. Keep `CONCURRENCY` between 3 and 8 for regular use.
-- Very large pools can take time to compute. Use `--limit 50` for faster scans.
-
-## Troubleshooting
-
-```text
-404 / not found      Pool or position address is wrong or unavailable.
-Rate limit / 429     Set HELIUS_API_KEY or SOLANA_RPC_URL in .env, then restart PM2.
-Timeout              Retry, lower --limit, or increase request timeout in src/config.js.
-Empty prices         Jupiter price API failed; PnL may show zeros for unknown token prices.
+pm2 logs meteora-lb
 ```

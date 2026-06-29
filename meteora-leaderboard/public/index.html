@@ -4,111 +4,487 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Meteora DLMM LP Leaderboard</title>
-    <link rel="stylesheet" href="/styles.css">
+    <style>
+      :root {
+        --bg-0: #0a0c0b;
+        --bg-1: #0f1210;
+        --bg-2: #161a17;
+        --bg-3: #1e2320;
+        --border: rgba(255,255,255,0.07);
+        --border-hi: rgba(255,255,255,0.12);
+        --green: #1cb87a;
+        --green-dim: rgba(28,184,122,0.10);
+        --red: #e05252;
+        --red-dim: rgba(224,82,82,0.08);
+        --amber: #c98500;
+        --text-hi: #eef2ef;
+        --text-mid: #9ba59d;
+        --text-lo: #5a645c;
+        --radius: 10px;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg-0);
+        color: var(--text-hi);
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif;
+        letter-spacing: 0;
+      }
+      button, input { font: inherit; }
+      button {
+        background: var(--bg-1);
+        color: var(--text-hi);
+        border: 1px solid var(--border-hi);
+        border-radius: 8px;
+        padding: 11px 16px;
+        cursor: pointer;
+      }
+      button.active, button:hover { background: var(--bg-3); }
+      input {
+        width: 100%;
+        background: #090d0b;
+        color: var(--text-hi);
+        border: 1px solid var(--border-hi);
+        border-radius: 8px;
+        padding: 13px 16px;
+      }
+      .shell { width: min(1366px, calc(100vw - 48px)); margin: 28px auto 64px; }
+      .topbar { display: flex; justify-content: space-between; gap: 24px; align-items: flex-start; padding-bottom: 26px; border-bottom: 1px solid var(--border); }
+      .eyebrow { color: #00ffc2; font-size: 13px; font-weight: 800; text-transform: uppercase; letter-spacing: 4px; }
+      h1 { margin: 6px 0 6px; font-size: 36px; line-height: 1.05; }
+      p { color: var(--text-mid); margin: 0; font-size: 17px; }
+      .status-badge { min-width: 210px; text-align: right; color: var(--text-mid); }
+      .status-pill { display: inline-flex; align-items: center; gap: 8px; padding: 9px 12px; border: 1px solid var(--border); border-radius: 999px; background: var(--bg-1); }
+      .status-pill.ok { color: var(--green); background: var(--green-dim); }
+      .status-pill.warn { color: var(--amber); }
+      .status-pill.err { color: var(--red); background: var(--red-dim); }
+      .controls { display: flex; gap: 12px; flex-wrap: wrap; margin: 28px 0 22px; }
+      .segmented { display: inline-flex; border: 1px solid var(--border-hi); border-radius: 8px; overflow: hidden; }
+      .segmented button { border: 0; border-right: 1px solid var(--border-hi); border-radius: 0; min-width: 92px; }
+      .segmented button:last-child { border-right: 0; }
+      .pool-row, .lookup { display: grid; grid-template-columns: 1fr auto; gap: 12px; margin-bottom: 28px; }
+      .tabs { display: flex; margin-bottom: 20px; }
+      .tabs button { border-radius: 0; min-width: 150px; }
+      .tabs button:first-child { border-radius: 8px 0 0 8px; }
+      .tabs button:last-child { border-radius: 0 8px 8px 0; }
+      .status { min-height: 25px; color: var(--text-mid); margin-bottom: 18px; }
+      .status.error { color: var(--red); }
+      .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 24px; }
+      .stats article, .panel, .result-card, .empty-state {
+        background: var(--bg-1);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+      }
+      .stats article { padding: 20px; }
+      .stats span { display: block; color: var(--text-mid); font-size: 12px; text-transform: uppercase; letter-spacing: 3px; margin-bottom: 14px; }
+      .stats strong { font-size: 25px; }
+      .positive { color: #00ffc2; }
+      .negative { color: var(--red); }
+      .view { display: none; }
+      .view.active { display: block; }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { padding: 16px 20px; border-bottom: 1px solid var(--border); text-align: right; }
+      th { color: var(--text-mid); font-size: 12px; text-transform: uppercase; letter-spacing: 3px; }
+      th:nth-child(1), th:nth-child(2), td:nth-child(1), td:nth-child(2) { text-align: left; }
+      tr[data-wallet] { cursor: pointer; }
+      tr[data-wallet]:hover { background: rgba(255,255,255,0.025); }
+      .wallet strong { display: block; }
+      .wallet small { display: block; color: var(--text-mid); margin-top: 6px; }
+      .rank { color: var(--amber); font-weight: 800; }
+      .pos-pill { display: inline-flex; min-width: 34px; height: 34px; justify-content: center; align-items: center; background: var(--bg-3); border-radius: 8px; }
+      .result-card, .empty-state { padding: 24px; color: var(--text-mid); }
+      .pool-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; padding: 12px; }
+      .pool-card { padding: 16px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg-2); cursor: pointer; }
+      .pool-card:hover { border-color: var(--border-hi); background: var(--bg-3); }
+      .pool-card strong { display: block; margin-bottom: 10px; }
+      .pool-card span { display: block; color: var(--text-mid); font-size: 13px; margin-top: 4px; }
+      .drawer { position: fixed; inset: 0; display: none; background: rgba(0,0,0,0.5); }
+      .drawer.active { display: block; }
+      .drawer-panel { margin-left: auto; width: min(460px, 100vw); min-height: 100vh; background: var(--bg-1); border-left: 1px solid var(--border-hi); padding: 24px; }
+      .drawer-head { display: flex; justify-content: space-between; gap: 16px; align-items: start; margin-bottom: 24px; }
+      .breakdown { margin-top: 18px; display: grid; gap: 8px; }
+      .breakdown-row { display: grid; grid-template-columns: 1fr auto; gap: 12px; padding: 12px; background: var(--bg-2); border-radius: 8px; }
+      .spinner { width: 22px; height: 22px; border: 3px solid var(--border-hi); border-top-color: var(--green); border-radius: 50%; animation: spin 0.9s linear infinite; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      @media (max-width: 760px) {
+        .shell { width: min(100vw - 24px, 1366px); }
+        .topbar, .pool-row, .lookup { grid-template-columns: 1fr; display: grid; }
+        .status-badge { text-align: left; }
+        .stats { grid-template-columns: 1fr 1fr; }
+        th, td { padding: 12px 10px; }
+        .wallet small { display: none; }
+      }
+    </style>
   </head>
   <body>
     <main class="shell">
-      <section class="hero">
+      <section class="topbar">
         <div>
           <div class="eyebrow">Meteora DLMM</div>
           <h1>LP Leaderboard</h1>
-          <p>PnL rankings computed from pool positions and position history.</p>
+          <p>PnL computed from indexed on-chain position history across all indexed pools.</p>
         </div>
-        <button id="menuButton" class="icon-button" type="button" title="Options">...</button>
+        <div class="status-badge">
+          <span id="statusBadge" class="status-pill">Loading status...</span>
+        </div>
       </section>
 
-      <section class="controls" aria-label="Filters">
-        <div class="segmented" role="group" aria-label="Mode">
+      <section class="controls">
+        <div class="segmented">
           <button class="active" type="button" data-mode="winners">Top winners</button>
           <button type="button" data-mode="losers">Top losers</button>
         </div>
-        <div class="segmented" role="group" aria-label="Range">
-          <button class="active" type="button" data-period="7">7d</button>
+        <div class="segmented">
+          <button class="active" type="button" data-period="all">All</button>
+          <button type="button" data-period="7">7d</button>
           <button type="button" data-period="30">30d</button>
           <button type="button" data-period="90">90d</button>
-          <button type="button" data-period="all">All</button>
         </div>
-        <button id="refreshButton" class="refresh" type="button">Refresh</button>
+        <button id="refreshButton" type="button">Refresh</button>
       </section>
 
-      <section class="pool-row" aria-label="Pool selection">
-        <input id="poolInput" type="text" spellcheck="false" placeholder="Pool address" aria-label="Pool address">
-        <button id="loadPoolButton" type="button">Load pool</button>
+      <section class="pool-row">
+        <input id="poolInput" type="text" spellcheck="false" placeholder="Optional pool address filter. Leave empty for all indexed pools.">
+        <button id="loadPoolButton" type="button">Filter</button>
       </section>
 
-      <nav class="tabs" aria-label="Views">
-        <button class="active" type="button" data-view="leaderboard">Leaderboard</button>
-        <button type="button" data-view="wallet">Wallet lookup</button>
-        <button type="button" data-view="pool">Pool PnL</button>
+      <nav class="tabs">
+        <button class="active" type="button" data-tab="leaderboard">Leaderboard</button>
+        <button type="button" data-tab="wallet">Wallet Lookup</button>
+        <button type="button" data-tab="pools">Pool Explorer</button>
       </nav>
 
-      <section id="status" class="status" aria-live="polite"></section>
+      <section id="status" class="status"></section>
 
-      <section class="stats" aria-label="Summary">
-        <article>
-          <span>Total PnL (top 20)</span>
-          <strong id="totalPnl">$0</strong>
-        </article>
-        <article>
-          <span>Avg PnL</span>
-          <strong id="avgPnl">$0</strong>
-        </article>
-        <article>
-          <span>Total fees earned</span>
-          <strong id="feesEarned">$0</strong>
-        </article>
-        <article>
-          <span>SOL price</span>
-          <strong id="solPrice">$0</strong>
-        </article>
+      <section class="stats">
+        <article><span>Total PnL (shown)</span><strong id="totalPnl">$0</strong></article>
+        <article><span>Avg PnL</span><strong id="avgPnl">$0</strong></article>
+        <article><span>Total fees</span><strong id="feesEarned">$0</strong></article>
+        <article><span>Indexed pools</span><strong id="poolCount">0</strong></article>
       </section>
 
       <section id="leaderboardView" class="panel view active">
         <table>
           <thead>
-            <tr>
-              <th>#</th>
-              <th>Wallet</th>
-              <th>PnL SOL</th>
-              <th>PnL USD</th>
-              <th>Fees USD</th>
-              <th>Pos.</th>
-            </tr>
+            <tr><th>#</th><th>Wallet</th><th>PnL SOL</th><th>PnL USD</th><th>Fees</th><th>Pool</th><th>Pos</th></tr>
           </thead>
-          <tbody id="leaderboardBody"></tbody>
+          <tbody id="tableBody"></tbody>
         </table>
+        <div id="emptyState" class="empty-state" hidden></div>
       </section>
 
       <section id="walletView" class="panel view">
         <div class="lookup">
-          <input id="walletInput" type="text" spellcheck="false" placeholder="Wallet address">
-          <button id="lookupButton" type="button">Lookup</button>
+          <input id="walletInput" type="text" spellcheck="false" placeholder="Enter wallet address...">
+          <button id="lookupButton" type="button">Look up</button>
         </div>
         <div id="walletResult" class="result-card"></div>
       </section>
 
-      <section id="poolView" class="panel view">
-        <div class="pool-summary">
-          <div>
-            <span>Pool</span>
-            <strong id="poolName">-</strong>
-          </div>
-          <div>
-            <span>Scanned positions</span>
-            <strong id="poolPositions">0</strong>
-          </div>
-          <div>
-            <span>Pool PnL</span>
-            <strong id="poolPnl">$0</strong>
-          </div>
-          <div>
-            <span>Fees</span>
-            <strong id="poolFees">$0</strong>
-          </div>
-        </div>
+      <section id="poolsView" class="panel view">
+        <div id="poolGrid" class="pool-grid"></div>
       </section>
     </main>
 
-    <script src="/app.js" type="module"></script>
+    <section id="drawer" class="drawer">
+      <aside class="drawer-panel">
+        <div class="drawer-head">
+          <div>
+            <h2>Wallet Detail</h2>
+            <p id="drawerWallet"></p>
+          </div>
+          <button id="closeDrawer" type="button">x</button>
+        </div>
+        <div id="drawerContent"></div>
+      </aside>
+    </section>
+
+    <script>
+      const state = {
+        mode: 'winners',
+        activeTab: 'leaderboard',
+        poolFilter: null,
+        offset: 0,
+        limit: 50,
+        rankings: [],
+        pools: [],
+        status: null,
+        isLoading: false,
+      };
+
+      const el = {
+        statusBadge: document.getElementById('statusBadge'),
+        status: document.getElementById('status'),
+        poolInput: document.getElementById('poolInput'),
+        refreshButton: document.getElementById('refreshButton'),
+        loadPoolButton: document.getElementById('loadPoolButton'),
+        tableBody: document.getElementById('tableBody'),
+        emptyState: document.getElementById('emptyState'),
+        totalPnl: document.getElementById('totalPnl'),
+        avgPnl: document.getElementById('avgPnl'),
+        feesEarned: document.getElementById('feesEarned'),
+        poolCount: document.getElementById('poolCount'),
+        walletInput: document.getElementById('walletInput'),
+        walletResult: document.getElementById('walletResult'),
+        poolGrid: document.getElementById('poolGrid'),
+        drawer: document.getElementById('drawer'),
+        drawerWallet: document.getElementById('drawerWallet'),
+        drawerContent: document.getElementById('drawerContent'),
+        closeDrawer: document.getElementById('closeDrawer'),
+      };
+
+      function formatUsd(n, digits = 0) {
+        const value = Number(n) || 0;
+        const sign = value > 0 ? '+' : value < 0 ? '-' : '';
+        return `${sign}$${Math.abs(value).toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits })}`;
+      }
+
+      function formatSol(n) {
+        const value = Number(n) || 0;
+        const sign = value > 0 ? '+' : value < 0 ? '-' : '';
+        return `${sign}${Math.abs(value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SOL`;
+      }
+
+      function shortWallet(addr) {
+        return addr && addr.length > 12 ? `${addr.slice(0, 6)}...${addr.slice(-4)}` : addr || '-';
+      }
+
+      function timeAgo(ts) {
+        if (!ts) return 'never';
+        const seconds = Math.max(1, Math.floor((Date.now() - new Date(ts).getTime()) / 1000));
+        if (seconds < 60) return `${seconds}s ago`;
+        const minutes = Math.floor(seconds / 60);
+        if (minutes < 60) return `${minutes}m ago`;
+        const hours = Math.floor(minutes / 60);
+        return `${hours}h ago`;
+      }
+
+      async function api(path, params = {}) {
+        const url = new URL(path, window.location.origin);
+        Object.entries(params).forEach(([key, value]) => {
+          if (value !== undefined && value !== null && value !== '') url.searchParams.set(key, value);
+        });
+        const response = await fetch(url);
+        const json = await response.json();
+        if (!response.ok) throw new Error(json.error || `HTTP ${response.status}`);
+        return json;
+      }
+
+      function setError(message) {
+        el.status.textContent = message || '';
+        el.status.classList.toggle('error', Boolean(message));
+      }
+
+      function renderStats(result) {
+        const rows = result.rankings || [];
+        const total = rows.reduce((sum, row) => sum + (row.pnlUsd || 0), 0);
+        const fees = rows.reduce((sum, row) => sum + (row.feesEarnedUsd || 0), 0);
+        const avg = rows.length ? total / rows.length : 0;
+        el.totalPnl.textContent = formatUsd(total);
+        el.avgPnl.textContent = formatUsd(avg);
+        el.feesEarned.textContent = formatUsd(fees);
+        el.poolCount.textContent = String(result.meta?.indexedPools || 0);
+        el.totalPnl.className = total >= 0 ? 'positive' : 'negative';
+        el.avgPnl.className = avg >= 0 ? 'positive' : 'negative';
+      }
+
+      function renderLeaderboard(result) {
+        el.tableBody.innerHTML = '';
+        const rows = result.rankings || [];
+        for (const row of rows) {
+          const pnlClass = row.pnlUsd >= 0 ? 'positive' : 'negative';
+          const tr = document.createElement('tr');
+          tr.dataset.wallet = row.wallet;
+          tr.innerHTML = `
+            <td class="rank">${String(row.rank).padStart(2, '0')}</td>
+            <td><div class="wallet"><strong>${shortWallet(row.wallet)}</strong><small>${row.wallet}</small></div></td>
+            <td class="${pnlClass}">${formatSol(row.pnlSol)}</td>
+            <td class="${pnlClass}">${formatUsd(row.pnlUsd, 2)}</td>
+            <td>${formatUsd(row.feesEarnedUsd, 2).replace('+', '')}</td>
+            <td>${row.poolCount || 1}</td>
+            <td><span class="pos-pill">${row.positionCount || 0}</span></td>
+          `;
+          el.tableBody.appendChild(tr);
+        }
+        el.emptyState.hidden = rows.length > 0;
+        if (rows.length === 0) {
+          const running = state.status?.indexer?.isRunning;
+          el.emptyState.innerHTML = running
+            ? `<div class="spinner"></div><h3>Initial indexing in progress</h3><p>Fetching data from ${state.status.indexer.progress.poolsDone}/${state.status.indexer.progress.poolsTotal} pools...</p><p>This may take 10-30 minutes on first run.</p>`
+            : '<h3>No data yet</h3><p>Trigger an index run to populate the leaderboard.</p>';
+        }
+      }
+
+      async function fetchLeaderboard() {
+        state.isLoading = true;
+        setError('Loading leaderboard...');
+        try {
+          const result = await api('/api/leaderboard', {
+            mode: state.mode,
+            limit: state.limit,
+            offset: state.offset,
+            pool: state.poolFilter,
+          });
+          state.rankings = result.rankings;
+          renderStats(result);
+          renderLeaderboard(result);
+          setError(`Showing ${result.rankings.length}/${result.total} wallets ${state.poolFilter ? 'for selected pool' : 'across all indexed pools'}.`);
+        } catch (error) {
+          setError(error.message);
+        } finally {
+          state.isLoading = false;
+        }
+      }
+
+      async function fetchStatus() {
+        try {
+          state.status = await api('/api/status');
+          const status = state.status.indexer;
+          el.poolCount.textContent = String(state.status.database.poolCount || 0);
+          if (status.isRunning) {
+            el.statusBadge.className = 'status-pill warn';
+            el.statusBadge.textContent = `Indexing... ${status.progress.poolsDone}/${status.progress.poolsTotal} pools`;
+          } else if (status.lastError) {
+            el.statusBadge.className = 'status-pill err';
+            el.statusBadge.textContent = 'Last index failed';
+          } else {
+            el.statusBadge.className = 'status-pill ok';
+            el.statusBadge.textContent = `Updated ${timeAgo(status.lastFinished)}`;
+          }
+        } catch (error) {
+          el.statusBadge.className = 'status-pill err';
+          el.statusBadge.textContent = error.message;
+        }
+      }
+
+      async function lookupWallet(address) {
+        const wallet = address || el.walletInput.value.trim();
+        if (!wallet) {
+          el.walletResult.textContent = 'Enter a wallet address.';
+          return;
+        }
+        el.walletResult.textContent = 'Loading wallet...';
+        try {
+          const result = await api(`/api/wallet/${wallet}`);
+          el.walletResult.innerHTML = walletHtml(result);
+        } catch (error) {
+          el.walletResult.textContent = error.message;
+        }
+      }
+
+      function walletHtml(result) {
+        const s = result.summary;
+        const pnlClass = s.pnlUsd >= 0 ? 'positive' : 'negative';
+        const breakdown = result.poolBreakdown.map((pool) => `
+          <div class="breakdown-row">
+            <span>${pool.poolName || shortWallet(pool.poolAddress)}</span>
+            <strong class="${pool.pnlUsd >= 0 ? 'positive' : 'negative'}">${formatUsd(pool.pnlUsd, 2)}</strong>
+          </div>
+        `).join('');
+        return `
+          <strong>${shortWallet(result.wallet)}</strong>
+          <p>${result.wallet}</p>
+          <div class="breakdown">
+            <div class="breakdown-row"><span>Total PnL</span><strong class="${pnlClass}">${formatUsd(s.pnlUsd, 2)}</strong></div>
+            <div class="breakdown-row"><span>Total fees</span><strong>${formatUsd(s.feesEarnedUsd, 2).replace('+', '')}</strong></div>
+            <div class="breakdown-row"><span>Deposited</span><strong>${formatUsd(s.depositedUsd, 2).replace('+', '')}</strong></div>
+          </div>
+          <h3>Pool Breakdown</h3>
+          <div class="breakdown">${breakdown || '<p>No indexed pool breakdown.</p>'}</div>
+        `;
+      }
+
+      async function fetchPools() {
+        try {
+          const result = await api('/api/pools', { limit: 100 });
+          state.pools = result.pools;
+          el.poolGrid.innerHTML = result.pools.map((pool) => `
+            <div class="pool-card" data-pool="${pool.address}">
+              <strong>${pool.name}</strong>
+              <span>${shortWallet(pool.address)}</span>
+              <span>TVL ${formatUsd(pool.tvlUsd).replace('+', '')} | Vol ${formatUsd(pool.volume24hUsd).replace('+', '')}</span>
+              <span>Fee ${pool.feeRate || 0}% | Positions ${pool.positionCount || 0}</span>
+            </div>
+          `).join('') || '<div class="empty-state">No indexed pools yet.</div>';
+        } catch (error) {
+          el.poolGrid.innerHTML = `<div class="empty-state">${error.message}</div>`;
+        }
+      }
+
+      async function openWalletModal(wallet) {
+        el.drawer.classList.add('active');
+        el.drawerWallet.textContent = wallet;
+        el.drawerContent.textContent = 'Loading wallet...';
+        try {
+          const result = await api(`/api/wallet/${wallet}`);
+          el.drawerContent.innerHTML = walletHtml(result);
+        } catch (error) {
+          el.drawerContent.textContent = error.message;
+        }
+      }
+
+      function closeModal() {
+        el.drawer.classList.remove('active');
+      }
+
+      function setMode(mode) {
+        state.mode = mode;
+        state.offset = 0;
+        document.querySelectorAll('[data-mode]').forEach((button) => button.classList.toggle('active', button.dataset.mode === mode));
+        fetchLeaderboard();
+      }
+
+      function setTab(tab) {
+        state.activeTab = tab;
+        document.querySelectorAll('[data-tab]').forEach((button) => button.classList.toggle('active', button.dataset.tab === tab));
+        document.querySelectorAll('.view').forEach((view) => view.classList.remove('active'));
+        document.getElementById(`${tab}View`).classList.add('active');
+        if (tab === 'pools') fetchPools();
+      }
+
+      function copyToClipboard(text) {
+        return navigator.clipboard.writeText(text);
+      }
+
+      document.getElementById('tableBody').addEventListener('click', (event) => {
+        const row = event.target.closest('[data-wallet]');
+        if (row) openWalletModal(row.dataset.wallet);
+      });
+      document.querySelectorAll('[data-mode]').forEach((button) => button.addEventListener('click', () => setMode(button.dataset.mode)));
+      document.querySelectorAll('[data-tab]').forEach((button) => button.addEventListener('click', () => setTab(button.dataset.tab)));
+      document.querySelectorAll('[data-period]').forEach((button) => {
+        button.addEventListener('click', () => {
+          document.querySelectorAll('[data-period]').forEach((item) => item.classList.toggle('active', item === button));
+        });
+      });
+      el.refreshButton.addEventListener('click', () => fetchLeaderboard());
+      el.loadPoolButton.addEventListener('click', () => {
+        state.poolFilter = el.poolInput.value.trim() || null;
+        state.offset = 0;
+        fetchLeaderboard();
+      });
+      el.lookupButton.addEventListener('click', () => lookupWallet());
+      el.walletInput.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter') lookupWallet();
+      });
+      el.poolGrid.addEventListener('click', (event) => {
+        const card = event.target.closest('[data-pool]');
+        if (!card) return;
+        state.poolFilter = card.dataset.pool;
+        el.poolInput.value = state.poolFilter;
+        setTab('leaderboard');
+        fetchLeaderboard();
+      });
+      el.closeDrawer.addEventListener('click', closeModal);
+      el.drawer.addEventListener('click', (event) => {
+        if (event.target === el.drawer) closeModal();
+      });
+
+      setInterval(fetchStatus, 10_000);
+      document.addEventListener('DOMContentLoaded', () => {
+        fetchStatus();
+        fetchLeaderboard();
+      });
+    </script>
   </body>
 </html>

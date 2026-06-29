@@ -1,28 +1,26 @@
 import 'dotenv/config';
 
-const intFromEnv = (name, fallback) => {
+function intFromEnv(name, fallback) {
   const parsed = Number.parseInt(process.env[name], 10);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
-};
-
-const heliusApiKey = process.env.HELIUS_API_KEY || null;
-const defaultRpcUrl = heliusApiKey
-  ? `https://mainnet.helius-rpc.com/?api-key=${heliusApiKey}`
-  : 'https://api.mainnet-beta.solana.com';
+}
 
 export const config = Object.freeze({
-  port: intFromEnv('PORT', 7777),
-  defaultPool: process.env.DEFAULT_POOL || '5rCf1DM8LjKTw4YqhnoLcngyZYeNnQqztScTogYHAS6',
-  maxPositions: intFromEnv('MAX_POSITIONS_PER_POOL', 100),
-  concurrency: intFromEnv('CONCURRENCY', 5),
-  cacheTtlMs: intFromEnv('CACHE_TTL', 300) * 1000,
-  heliusApiKey,
-  apiBase: 'https://dlmm.datapi.meteora.ag',
-  poolDiscoveryBase: 'https://pool-discovery-api.datapi.meteora.ag',
-  solanaRpcUrl: process.env.SOLANA_RPC_URL || defaultRpcUrl,
+  port: intFromEnv('PORT', 3001),
+  topPoolsLimit: intFromEnv('TOP_POOLS_LIMIT', 50),
+  maxPositionsPerPool: intFromEnv('MAX_POSITIONS_PER_POOL', 200),
+  concurrency: Math.min(intFromEnv('CONCURRENCY', 6), 10),
+  cronSchedule: process.env.CRON_SCHEDULE || '0 * * * *',
+  adminToken: process.env.ADMIN_TOKEN || 'ganti_ini_dengan_random_string',
+  dbPath: process.env.DB_PATH || './leaderboard.db',
+  meteoraApiBase: process.env.METEORA_API_BASE || 'https://dlmm.datapi.meteora.ag',
+  jupiterPriceUrl: process.env.JUPITER_PRICE_URL || 'https://api.jup.ag/price/v3',
+  solanaRpcUrl: process.env.SOLANA_RPC_URL || 'https://api.mainnet-beta.solana.com',
   dlmmProgramId: 'LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo',
-  jupiterPriceUrl: 'https://api.jup.ag/price/v3',
-  requestTimeoutMs: 15_000,
-  retryAttempts: 3,
-  retryBaseDelayMs: 1000,
+  requestTimeoutMs: intFromEnv('REQUEST_TIMEOUT_MS', 15_000),
+  retryAttempts: intFromEnv('RETRY_ATTEMPTS', 3),
 });
+
+if (config.adminToken === 'ganti_ini_dengan_random_string') {
+  console.warn('[config] ADMIN_TOKEN masih default. Set ADMIN_TOKEN di .env sebelum expose server.');
+}
