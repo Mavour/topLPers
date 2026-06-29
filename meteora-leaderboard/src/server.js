@@ -17,7 +17,7 @@ const app = express();
 app.use(express.json());
 app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.header('Access-Control-Allow-Headers', 'Content-Type');
   next();
 });
 
@@ -27,8 +27,6 @@ app.use('/api/pools', poolsRouter);
 app.use('/api/status', statusRouter);
 
 app.post('/api/index/run', (req, res) => {
-  const token = req.headers.authorization?.replace('Bearer ', '');
-  if (token !== config.adminToken) return res.status(401).json({ error: 'Unauthorized' });
   runFullIndex().catch((error) => console.error('Manual index error:', error));
   return res.json({ message: 'Index run triggered' });
 });

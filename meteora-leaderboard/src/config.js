@@ -17,7 +17,6 @@ export const config = Object.freeze({
   maxPositions: intFromEnv('MAX_POSITIONS_PER_POOL', 200),
   concurrency: Math.min(intFromEnv('CONCURRENCY', 6), 10),
   cronSchedule: process.env.CRON_SCHEDULE || '0 * * * *',
-  adminToken: process.env.ADMIN_TOKEN || 'ganti_ini_dengan_random_string',
   dbPath: process.env.DB_PATH || './leaderboard.db',
   meteoraApiBase: process.env.METEORA_API_BASE || 'https://dlmm.datapi.meteora.ag',
   jupiterPriceUrl: process.env.JUPITER_PRICE_URL || 'https://api.jup.ag/price/v3',
@@ -31,7 +30,3 @@ export const config = Object.freeze({
   minVolume7d: floatFromEnv('MIN_VOLUME_7D_USD', 5_000),
   maxPoolsToIndex: intFromEnv('MAX_POOLS_TO_INDEX', 300),
 });
-
-if (config.adminToken === 'ganti_ini_dengan_random_string') {
-  console.warn('[config] ADMIN_TOKEN masih default. Set ADMIN_TOKEN di .env sebelum expose server.');
-}

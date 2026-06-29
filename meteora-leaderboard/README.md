@@ -9,8 +9,6 @@ npm install
 cp .env.example .env
 ```
 
-Edit `.env` and set a random `ADMIN_TOKEN`.
-
 ## Run
 
 ```bash
@@ -28,8 +26,7 @@ The first run starts automatically when the database is empty. It can take 10-30
 ## Manual Index
 
 ```bash
-curl -X POST http://localhost:3001/api/index/run \
-  -H "Authorization: Bearer your_admin_token"
+curl -X POST http://localhost:3001/api/index/run
 ```
 
 ## API
