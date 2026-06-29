@@ -254,7 +254,7 @@
               <a id="drawerSolscan" href="#" target="_blank" rel="noopener">Solscan</a>
             </div>
           </div>
-          <button id="closeDrawer" type="button">x</button>
+          <button id="closeDrawer" type="button" onclick="window.closeWalletDrawer && window.closeWalletDrawer()">x</button>
         </div>
         <div id="drawerContent"></div>
       </aside>
@@ -272,6 +272,7 @@
         pools: [],
         status: null,
         isLoading: false,
+        lastFinishedSeen: null,
       };
 
       const el = {
@@ -455,7 +456,8 @@
           state.rankings = result.rankings;
           renderStats(result);
           renderLeaderboard(result);
-          setError(`Showing ${result.rankings.length}/${result.total} wallets ${state.poolFilter ? 'for selected pool' : 'across all indexed pools'}.`);
+          const fallback = result.meta?.usedStaleFallback ? ' Showing latest cached data while current period/index catches up.' : '';
+          setError(`Showing ${result.rankings.length}/${result.total} wallets ${state.poolFilter ? 'for selected pool' : 'across all indexed pools'}.${fallback}`);
         } catch (error) {
           setError(error.message);
         } finally {
@@ -471,12 +473,17 @@
           if (status.isRunning) {
             el.statusBadge.className = 'status-pill warn';
             el.statusBadge.textContent = `Indexing... ${status.progress.poolsDone}/${status.progress.poolsTotal} pools`;
+            if (!state.isLoading && state.rankings.length === 0) fetchLeaderboard();
           } else if (status.lastError) {
             el.statusBadge.className = 'status-pill err';
             el.statusBadge.textContent = 'Last index failed';
           } else {
             el.statusBadge.className = 'status-pill ok';
             el.statusBadge.textContent = `Updated ${timeAgo(status.lastFinished)}`;
+            if (status.lastFinished && status.lastFinished !== state.lastFinishedSeen) {
+              state.lastFinishedSeen = status.lastFinished;
+              if (!state.isLoading) fetchLeaderboard();
+            }
           }
         } catch (error) {
           el.statusBadge.className = 'status-pill err';
@@ -632,6 +639,7 @@
         modalWalletAddr = null;
         modalData = null;
       }
+      window.closeWalletDrawer = closeModal;
 
       function setMode(mode) {
         state.mode = mode;
@@ -725,7 +733,17 @@
         setTab('leaderboard');
         fetchLeaderboard();
       });
-      el.closeDrawer.addEventListener('click', closeModal);
+      el.closeDrawer.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        closeModal();
+      });
+      document.addEventListener('click', (event) => {
+        if (event.target.closest('#closeDrawer')) {
+          event.preventDefault();
+          closeModal();
+        }
+      }, true);
       el.drawerCopy.addEventListener('click', copyModalAddr);
       el.drawer.addEventListener('click', (event) => {
         if (event.target === el.drawer) closeModal();

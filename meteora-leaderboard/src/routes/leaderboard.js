@@ -32,7 +32,7 @@ router.get('/', (req, res) => {
     const offset = Math.max(Number.parseInt(req.query.offset, 10) || 0, 0);
     const pool = req.query.pool ? String(req.query.pool) : null;
     const period = req.query.period ? String(req.query.period) : '7';
-    const { rows, total } = getLeaderboard({ mode, limit, offset, pool, period });
+    const { rows, total, usedStaleFallback } = getLeaderboard({ mode, limit, offset, pool, period });
     const stats = getStats();
     res.json({
       mode,
@@ -45,6 +45,7 @@ router.get('/', (req, res) => {
       meta: {
         lastIndexed: iso(stats.lastRun?.finished_at),
         indexedPools: stats.poolCount,
+        usedStaleFallback,
         ...(total === 0 ? { message: 'Index belum dijalankan' } : {}),
       },
     });

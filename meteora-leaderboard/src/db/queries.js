@@ -200,13 +200,15 @@ export function getLeaderboard({ mode = 'winners', limit = 50, offset = 0, pool 
   const requestedDays = Number.parseInt(String(period).replace(/d$/i, ''), 10);
   const days = requestedDays === 1 ? 1 : 7;
   const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
-  const rows = db.prepare(`
+  let rows = db.prepare(`
     SELECT * FROM wallet_pool_pnl
     WHERE last_updated >= ? ${pool ? 'AND pool_address = ?' : ''}
   `).all(...(pool ? [cutoff, pool] : [cutoff]));
 
+  let usedStaleFallback = false;
   const grouped = new Map();
-  for (const row of rows) {
+  const addRows = (sourceRows) => {
+    for (const row of sourceRows) {
     if (isSuspectPnlRow(row)) continue;
     const existing = grouped.get(row.wallet) || {
       wallet: row.wallet,
@@ -236,12 +238,25 @@ export function getLeaderboard({ mode = 'winners', limit = 50, offset = 0, pool 
       existing.best_pool_address = row.pool_address;
     }
     grouped.set(row.wallet, existing);
+    }
+  };
+
+  addRows(rows);
+  if (grouped.size === 0) {
+    rows = db.prepare(`
+      SELECT * FROM wallet_pool_pnl
+      ${pool ? 'WHERE pool_address = ?' : ''}
+      ORDER BY last_updated DESC
+      LIMIT 5000
+    `).all(...(pool ? [pool] : []));
+    usedStaleFallback = true;
+    addRows(rows);
   }
 
   const sorted = Array.from(grouped.values()).sort((left, right) => (
     direction === 'ASC' ? left.pnl_usd - right.pnl_usd : right.pnl_usd - left.pnl_usd
   ));
-  return { rows: sorted.slice(offset, offset + limit), total: sorted.length };
+  return { rows: sorted.slice(offset, offset + limit), total: sorted.length, usedStaleFallback };
 }
 
 export function getWalletSummary(wallet) {
