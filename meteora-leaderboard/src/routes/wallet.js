@@ -59,6 +59,26 @@ function positionSetup(position, pool = null) {
   return lines;
 }
 
+function parseBinRange(value) {
+  if (!value) return {};
+  const match = String(value).match(/-?\d+/g);
+  if (!match || match.length < 2) return {};
+  return {
+    lowerBinId: Number.parseInt(match[0], 10),
+    upperBinId: Number.parseInt(match[1], 10),
+  };
+}
+
+function mergedSetup(position, pool) {
+  const existing = Array.isArray(position.setup) ? position.setup : [];
+  const lines = [...existing];
+  for (const line of positionSetup(position, pool)) {
+    const key = line.split(' ')[0];
+    if (!lines.some((item) => String(item).startsWith(key))) lines.push(line);
+  }
+  return lines;
+}
+
 function parseSetup(value) {
   if (!value) return [];
   try {
@@ -70,6 +90,7 @@ function parseSetup(value) {
 }
 
 function indexedPosition(row) {
+  const binIds = parseBinRange(row.bin_range);
   return {
     positionAddress: row.position_address,
     poolAddress: row.pool_address,
@@ -85,6 +106,8 @@ function indexedPosition(row) {
     closedAt: flexibleIso(row.closed_at),
     durationSeconds: row.duration_seconds,
     binRange: row.bin_range,
+    lowerBinId: binIds.lowerBinId,
+    upperBinId: binIds.upperBinId,
     setup: parseSetup(row.setup_json),
   };
 }
@@ -202,11 +225,12 @@ router.get('/:address', async (req, res) => {
     for (const position of indexedPositions) {
       const pool = ensurePool(position.poolAddress, position.poolName);
       if (hasPosition(pool, position.positionAddress)) continue;
+      const decorated = { ...position, setup: mergedSetup(position, pool) };
       if (position.status === 'open') {
         pool.hasOpenPosition = true;
-        pool.openPositions.push(position);
+        pool.openPositions.push(decorated);
       } else {
-        pool.closedPositions.push(position);
+        pool.closedPositions.push(decorated);
       }
     }
 

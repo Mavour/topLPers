@@ -549,6 +549,11 @@
             const posPnlClass = (position.pnlUsd || 0) >= 0 ? 'positive' : 'negative';
             const baseUsd = position.depositedUsd || position.currentValueUsd || pool.depositedUsd || pool.withdrawnUsd;
             const pct = pnlPct(position.pnlUsd || pool.pnlUsd, baseUsd);
+            const entryUsd = Number(position.depositedUsd || position.currentValueUsd || 0);
+            const entryTime = formatUtc(position.createdAt);
+            const entryText = entryUsd > 0 || entryTime !== '-'
+              ? `${entryUsd > 0 ? formatUsd(entryUsd, 1).replace('+', '') : 'Amount not indexed'} at ${entryTime}`
+              : 'Entry data not indexed yet';
             const setup = (position.setup || []).length
               ? position.setup.join('\n')
               : (position.binRange ? `BIN RANGE ${position.binRange}` : 'No bin setup data indexed yet.');
@@ -572,7 +577,7 @@
                     ${escHtml(positionTitle)} &middot; ${escHtml(posStatus)} &middot; ${formatUtc(position.createdAt)} &rarr; ${position.closedAt ? formatUtc(position.closedAt) : 'now'}
                   </div>
                   <div class="wallet-position-label">Entry</div>
-                  <div class="wallet-position-pre">${formatUsd(position.depositedUsd || position.currentValueUsd || 0, 1).replace('+', '')} at ${formatUtc(position.createdAt)}</div>
+                  <div class="wallet-position-pre">${escHtml(entryText)}</div>
                   <div class="wallet-position-label">Set up</div>
                   <div class="wallet-position-pre">${escHtml(setup)}</div>
                   <div class="wallet-position-label">Close: <span class="${posStatus === 'open' ? 'positive' : ''}">${posStatus === 'open' ? 'open' : formatUtc(position.closedAt)}</span></div>

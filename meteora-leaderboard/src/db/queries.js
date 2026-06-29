@@ -200,10 +200,25 @@ export function getLeaderboard({ mode = 'winners', limit = 50, offset = 0, pool 
   const requestedDays = Number.parseInt(String(period).replace(/d$/i, ''), 10);
   const days = requestedDays === 1 ? 1 : 7;
   const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+  const poolFilter = pool ? 'wpp.pool_address = ? AND' : '';
+  const periodArgs = pool ? [pool, cutoff, cutoff, cutoff] : [cutoff, cutoff, cutoff];
   let rows = db.prepare(`
-    SELECT * FROM wallet_pool_pnl
-    WHERE last_updated >= ? ${pool ? 'AND pool_address = ?' : ''}
-  `).all(...(pool ? [cutoff, pool] : [cutoff]));
+    SELECT wpp.*
+    FROM wallet_pool_pnl wpp
+    WHERE ${poolFilter} (
+      (wpp.created_at IS NOT NULL AND wpp.created_at >= ?)
+      OR EXISTS (
+        SELECT 1
+        FROM wallet_positions wp
+        WHERE wp.wallet = wpp.wallet
+          AND wp.pool_address = wpp.pool_address
+          AND (
+            (wp.created_at IS NOT NULL AND wp.created_at >= ?)
+            OR (wp.closed_at IS NOT NULL AND wp.closed_at >= ?)
+          )
+      )
+    )
+  `).all(...periodArgs);
 
   let usedStaleFallback = false;
   const grouped = new Map();
@@ -242,7 +257,7 @@ export function getLeaderboard({ mode = 'winners', limit = 50, offset = 0, pool 
   };
 
   addRows(rows);
-  if (grouped.size === 0) {
+  if (grouped.size === 0 && days === 7) {
     rows = db.prepare(`
       SELECT * FROM wallet_pool_pnl
       ${pool ? 'WHERE pool_address = ?' : ''}

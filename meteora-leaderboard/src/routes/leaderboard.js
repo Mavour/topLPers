@@ -46,7 +46,7 @@ router.get('/', (req, res) => {
         lastIndexed: iso(stats.lastRun?.finished_at),
         indexedPools: stats.poolCount,
         usedStaleFallback,
-        ...(total === 0 ? { message: 'Index belum dijalankan' } : {}),
+        ...(total === 0 ? { message: stats.lastRun ? 'Tidak ada posisi dengan aktivitas pada periode ini' : 'Index belum dijalankan' } : {}),
       },
     });
   } catch (error) {

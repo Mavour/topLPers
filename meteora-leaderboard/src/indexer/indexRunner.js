@@ -107,7 +107,7 @@ export async function runFullIndex() {
       for (const [wallet, data] of batch) {
         for (const pool of data.poolBreakdown) {
           const createdTimes = [...pool.openPositions, ...pool.closedPositions]
-            .map((position) => Number.parseInt(position.createdAt, 10))
+            .map((position) => toMs(position.createdAt))
             .filter((value) => Number.isFinite(value) && value > 0);
           upsertWalletPoolPnl({
             wallet,
