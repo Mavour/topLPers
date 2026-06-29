@@ -32,7 +32,7 @@ router.get('/', (req, res) => {
     const offset = Math.max(Number.parseInt(req.query.offset, 10) || 0, 0);
     const pool = req.query.pool ? String(req.query.pool) : null;
     const period = req.query.period ? String(req.query.period) : '7';
-    const { rows, total, usedStaleFallback } = getLeaderboard({ mode, limit, offset, pool, period });
+    const { rows, total, usedStaleFallback, periodSource } = getLeaderboard({ mode, limit, offset, pool, period });
     const stats = getStats();
     res.json({
       mode,
@@ -46,6 +46,7 @@ router.get('/', (req, res) => {
         lastIndexed: iso(stats.lastRun?.finished_at),
         indexedPools: stats.poolCount,
         usedStaleFallback,
+        periodSource,
         ...(total === 0 ? { message: stats.lastRun ? 'Tidak ada posisi dengan aktivitas pada periode ini' : 'Index belum dijalankan' } : {}),
       },
     });

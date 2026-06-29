@@ -200,27 +200,29 @@ export function getLeaderboard({ mode = 'winners', limit = 50, offset = 0, pool 
   const requestedDays = Number.parseInt(String(period).replace(/d$/i, ''), 10);
   const days = requestedDays === 1 ? 1 : 7;
   const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
-  const poolFilter = pool ? 'wpp.pool_address = ? AND' : '';
-  const periodArgs = pool ? [pool, cutoff, cutoff, cutoff] : [cutoff, cutoff, cutoff];
-  let rows = db.prepare(`
-    SELECT wpp.*
-    FROM wallet_pool_pnl wpp
-    WHERE ${poolFilter} (
-      (wpp.created_at IS NOT NULL AND wpp.created_at >= ?)
-      OR EXISTS (
-        SELECT 1
-        FROM wallet_positions wp
-        WHERE wp.wallet = wpp.wallet
-          AND wp.pool_address = wpp.pool_address
-          AND (
-            (wp.created_at IS NOT NULL AND wp.created_at >= ?)
-            OR (wp.closed_at IS NOT NULL AND wp.closed_at >= ?)
-          )
-      )
+  const poolFilter = pool ? 'AND pool_address = ?' : '';
+  const periodArgs = pool ? [cutoff, cutoff, pool] : [cutoff, cutoff];
+  const rows = db.prepare(`
+    SELECT
+      wallet,
+      pool_address,
+      COALESCE(MAX(pool_name), pool_address) AS pool_name,
+      SUM(pnl_usd) AS pnl_usd,
+      SUM(pnl_sol) AS pnl_sol,
+      SUM(fees_usd) AS fees_earned_usd,
+      SUM(deposited_usd) AS deposited_usd,
+      SUM(withdrawn_usd) AS withdrawn_usd,
+      COUNT(*) AS position_count,
+      MAX(last_updated) AS last_updated
+    FROM wallet_positions
+    WHERE (
+      (closed_at IS NOT NULL AND closed_at >= ?)
+      OR (status = 'open' AND created_at IS NOT NULL AND created_at >= ?)
     )
+    ${poolFilter}
+    GROUP BY wallet, pool_address
   `).all(...periodArgs);
 
-  let usedStaleFallback = false;
   const grouped = new Map();
   const addRows = (sourceRows) => {
     for (const row of sourceRows) {
@@ -257,21 +259,11 @@ export function getLeaderboard({ mode = 'winners', limit = 50, offset = 0, pool 
   };
 
   addRows(rows);
-  if (grouped.size === 0 && days === 7) {
-    rows = db.prepare(`
-      SELECT * FROM wallet_pool_pnl
-      ${pool ? 'WHERE pool_address = ?' : ''}
-      ORDER BY last_updated DESC
-      LIMIT 5000
-    `).all(...(pool ? [pool] : []));
-    usedStaleFallback = true;
-    addRows(rows);
-  }
 
   const sorted = Array.from(grouped.values()).sort((left, right) => (
     direction === 'ASC' ? left.pnl_usd - right.pnl_usd : right.pnl_usd - left.pnl_usd
   ));
-  return { rows: sorted.slice(offset, offset + limit), total: sorted.length, usedStaleFallback };
+  return { rows: sorted.slice(offset, offset + limit), total: sorted.length, usedStaleFallback: false, periodSource: 'wallet_positions' };
 }
 
 export function getWalletSummary(wallet) {

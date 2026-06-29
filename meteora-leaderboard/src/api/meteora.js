@@ -363,6 +363,65 @@ function readU64LE(bytes, offset) {
   return Number(bytes.readBigUInt64LE(offset));
 }
 
+function eventType(event) {
+  return String(event?.eventType || event?.type || '').toLowerCase();
+}
+
+function eventMs(event) {
+  const raw = event?.blockTime ?? event?.createdAt ?? event?.created_at ?? event?.timestamp;
+  const numeric = Number(raw);
+  if (Number.isFinite(numeric) && numeric > 0) return numeric < 10_000_000_000 ? numeric * 1000 : numeric;
+  const parsed = Date.parse(raw);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function eventUsd(event) {
+  const direct = numberFrom(firstDefined(event, ['totalUsd', 'total_usd', 'valueUsd', 'value_usd']), NaN);
+  if (Number.isFinite(direct)) return direct;
+  const x = numberFrom(firstDefined(event, ['amountXUsd', 'amount_x_usd', 'tokenXUsd', 'token_x_usd']), 0);
+  const y = numberFrom(firstDefined(event, ['amountYUsd', 'amount_y_usd', 'tokenYUsd', 'token_y_usd']), 0);
+  return x + y;
+}
+
+async function getPositionHistory(positionAddress) {
+  if (!isValidAddress(positionAddress)) return [];
+  const cacheKey = `history:${positionAddress}`;
+  const cached = cacheGet(cacheKey);
+  if (cached) return cached;
+  const raw = await request(DATA_API, `/positions/${encodeURIComponent(positionAddress)}/historical`);
+  const events = normalizeArray(raw, ['events']);
+  cacheSet(cacheKey, events, 10 * 60 * 1000);
+  return events;
+}
+
+function summarizePositionHistory(events) {
+  const adds = events.filter((event) => eventType(event) === 'add');
+  const removes = events.filter((event) => eventType(event) === 'remove');
+  const feeClaims = events.filter((event) => eventType(event) === 'claim_fee');
+  const times = (adds.length ? adds : events)
+    .map(eventMs)
+    .filter((value) => Number.isFinite(value) && value > 0);
+  const createdMs = times.length ? Math.min(...times) : null;
+  const depositedUsd = adds.reduce((sum, event) => sum + eventUsd(event), 0);
+  const withdrawnUsd = removes.reduce((sum, event) => sum + eventUsd(event), 0);
+  const feesUsd = feeClaims.reduce((sum, event) => sum + eventUsd(event), 0);
+  return {
+    created_at: createdMs ? new Date(createdMs).toISOString() : null,
+    deposited_usd: depositedUsd,
+    withdrawn_usd: withdrawnUsd,
+    fees_usd: feesUsd,
+    pnl_usd: withdrawnUsd > 0 ? withdrawnUsd + feesUsd - depositedUsd : feesUsd,
+    history_event_count: events.length,
+  };
+}
+
+async function enrichPositionWithHistory(position) {
+  const positionAddress = firstDefined(position, ['position_address', 'position', 'address']);
+  const events = await getPositionHistory(positionAddress).catch(() => []);
+  if (!events.length) return position;
+  return { ...position, ...summarizePositionHistory(events) };
+}
+
 export async function getPositionState(positionAddress) {
   if (!isValidAddress(positionAddress)) {
     throw new Error(`Invalid position address: ${positionAddress}`);
@@ -400,8 +459,9 @@ export async function getWalletOpenPositions(walletAddress) {
   const cached = cacheGet(cacheKey);
   if (cached) return cached;
   const positions = await getWalletPositionsFromRpc(walletAddress, config.maxPositions);
-  cacheSet(cacheKey, positions, 60 * 1000);
-  return positions;
+  const enriched = await Promise.all(positions.map(enrichPositionWithHistory));
+  cacheSet(cacheKey, enriched, 60 * 1000);
+  return enriched;
 }
 
 export async function getWalletPortfolio(walletAddress) {
