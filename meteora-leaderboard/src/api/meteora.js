@@ -1,15 +1,21 @@
 import { config } from '../config.js';
+import { get as cacheGet, set as cacheSet } from '../cache/memCache.js';
 
+const PAIR_API = process.env.METEORA_PAIR_API || 'https://dlmm-api.meteora.ag';
+const DATA_API = process.env.METEORA_DATA_API || 'https://dlmm.datapi.meteora.ag';
 const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
 export const BASE58_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-const positionStateCache = new Map();
+
 const KNOWN_DECIMALS = new Map([
   ['So11111111111111111111111111111111111111112', 9],
   ['EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', 6],
   ['Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', 6],
   ['2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo', 6],
 ]);
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 export function isValidAddress(value) {
   return typeof value === 'string' && BASE58_RE.test(value.trim());
@@ -53,6 +59,7 @@ export function tokenMint(pool, side) {
     `token_${lower}.mint`,
     `token${upper}.address`,
     `token_${lower}.address`,
+    `mint_${lower}_address`,
   ]);
 }
 
@@ -68,58 +75,61 @@ export function getTokenDecimals(pool, side) {
     `token${upper}Decimals`,
     `token${upper}.decimals`,
     `token_${lower}.decimals`,
+    `mint_${lower}_decimals`,
   ]), 9);
 }
 
-function base58Encode(bytes) {
-  let value = 0n;
-  for (const byte of bytes) value = (value << 8n) + BigInt(byte);
-  let encoded = '';
-  while (value > 0n) {
-    encoded = BASE58_ALPHABET[Number(value % 58n)] + encoded;
-    value /= 58n;
-  }
-  for (const byte of bytes) {
-    if (byte === 0) encoded = BASE58_ALPHABET[0] + encoded;
-    else break;
-  }
-  return encoded || BASE58_ALPHABET[0];
-}
-
-async function request(path, queryParams = {}) {
-  const url = new URL(`${config.meteoraApiBase}${path}`);
-  for (const [key, value] of Object.entries(queryParams)) {
+async function request(baseUrl, path, queryParams = {}, attempt = 1) {
+  const url = new URL(baseUrl + path);
+  Object.entries(queryParams).forEach(([key, value]) => {
     if (value !== undefined && value !== null && value !== '') url.searchParams.set(key, String(value));
-  }
+  });
 
-  let lastError;
-  for (let attempt = 1; attempt <= config.retryAttempts; attempt += 1) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), config.requestTimeoutMs);
-    try {
-      const response = await fetch(url, { headers: { accept: 'application/json' }, signal: controller.signal });
-      const body = await response.text();
-      if (response.status === 429 && attempt < config.retryAttempts) await sleep(5_000);
-      if (!response.ok) throw new Error(`HTTP ${response.status}: ${body.slice(0, 200)}`);
-      return body ? JSON.parse(body) : {};
-    } catch (error) {
-      lastError = error;
-      if (attempt < config.retryAttempts) {
-        console.warn(`[meteora] retry ${attempt}/${config.retryAttempts}: ${path}`);
-        await sleep(1000 * 2 ** (attempt - 1));
-      }
-    } finally {
-      clearTimeout(timer);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), config.requestTimeoutMs);
+
+  try {
+    const response = await fetch(url.toString(), {
+      signal: controller.signal,
+      headers: {
+        accept: 'application/json',
+        'user-agent': 'MeteoraDLMMLeaderboard/3.0',
+      },
+    });
+    clearTimeout(timer);
+
+    if (response.status === 429) {
+      const wait = 5000 + attempt * 1000;
+      console.warn(`[meteora] rate limited, waiting ${wait}ms`);
+      await sleep(wait);
+      if (attempt < config.retryAttempts) return request(baseUrl, path, queryParams, attempt + 1);
+      throw new Error(`Rate limited after ${attempt} attempts: ${path}`);
     }
+
+    if (!response.ok) {
+      const body = await response.text().catch(() => '');
+      throw new Error(`HTTP ${response.status}: ${body.slice(0, 200)}`);
+    }
+
+    return response.json();
+  } catch (error) {
+    clearTimeout(timer);
+    const message = error.name === 'AbortError' ? `Timeout: ${path}` : error.message;
+    if (attempt < config.retryAttempts) {
+      const delay = config.retryBaseDelayMs * 2 ** (attempt - 1);
+      console.warn(`[meteora] retry ${attempt}/${config.retryAttempts}: ${path}`);
+      await sleep(delay);
+      return request(baseUrl, path, queryParams, attempt + 1);
+    }
+    throw new Error(`Failed ${path}: ${message}`);
   }
-  throw new Error(`Meteora request failed ${path}: ${lastError?.message || 'unknown error'}`);
 }
 
-async function tryRequest(paths) {
+async function tryRequest(requests) {
   let lastError;
-  for (const { path, params } of paths) {
+  for (const item of requests) {
     try {
-      return await request(path, params);
+      return await request(item.baseUrl, item.path, item.params || {});
     } catch (error) {
       lastError = error;
     }
@@ -147,51 +157,19 @@ async function rpcRequest(method, params) {
   }
 }
 
-function decodePositionStateFromAccount(data) {
-  if (!data) return null;
-  try {
-    const bytes = Buffer.from(data, 'base64');
-    if (bytes.length < 16) return null;
-    const readU64 = (buf, offset) => {
-      let value = 0n;
-      for (let index = 7; index >= 0; index -= 1) {
-        value = (value << 8n) + BigInt(buf[offset + index]);
-      }
-      return value;
-    };
-
-    return {
-      totalXAmount: Number(readU64(bytes, 0)),
-      totalYAmount: Number(readU64(bytes, 8)),
-      unclaimedFeeX: 0,
-      unclaimedFeeY: 0,
-      amountsAreRaw: true,
-      feesAreVerified: false,
-      source: 'solana-rpc',
-    };
-  } catch {
-    return null;
+function base58Encode(bytes) {
+  let value = 0n;
+  for (const byte of bytes) value = (value << 8n) + BigInt(byte);
+  let encoded = '';
+  while (value > 0n) {
+    encoded = BASE58_ALPHABET[Number(value % 58n)] + encoded;
+    value /= 58n;
   }
-}
-
-async function getFullPositionStateFromRpc(positionAddress) {
-  const cacheKey = `fullpos:${positionAddress}`;
-  const cached = positionStateCache.get(cacheKey);
-  if (cached && Date.now() - cached.ts < 30_000) return cached.value;
-
-  let value = null;
-  try {
-    const result = await rpcRequest('getAccountInfo', [
-      positionAddress,
-      { encoding: 'base64', dataSlice: { offset: 0, length: 16 } },
-    ]);
-    value = decodePositionStateFromAccount(result?.value?.data?.[0]);
-  } catch {
-    value = null;
+  for (const byte of bytes) {
+    if (byte === 0) encoded = BASE58_ALPHABET[0] + encoded;
+    else break;
   }
-
-  positionStateCache.set(cacheKey, { value, ts: Date.now() });
-  return value;
+  return encoded || BASE58_ALPHABET[0];
 }
 
 function decodePositionAccount(row) {
@@ -199,7 +177,7 @@ function decodePositionAccount(row) {
   if (!encoded) return null;
   const bytes = Buffer.from(encoded, 'base64');
   if (bytes.length < 72) return null;
-  return { position: row.pubkey, owner: base58Encode(bytes.subarray(40, 72)) };
+  return { position: row.pubkey, position_address: row.pubkey, owner: base58Encode(bytes.subarray(40, 72)) };
 }
 
 async function getPoolPositionsFromRpc(poolAddress, limit) {
@@ -214,52 +192,135 @@ async function getPoolPositionsFromRpc(poolAddress, limit) {
   return (result || []).map(decodePositionAccount).filter(Boolean).slice(0, limit);
 }
 
-export async function getTopPools(limit = 50) {
-  const raw = await tryRequest([
-    { path: '/pools', params: { page: 1, page_size: Math.min(limit, 100) } },
-    { path: '/pair/all', params: { page: 0, limit, sort_key: 'tvl', order_by: 'desc' } },
-  ]);
-  return normalizeArray(raw, ['data', 'pairs', 'pools'])
-    .sort((left, right) => numberFrom(firstDefined(right, ['current_tvl', 'tvl', 'liquidity'])) - numberFrom(firstDefined(left, ['current_tvl', 'tvl', 'liquidity'])))
-    .slice(0, limit);
+export async function getActivePools() {
+  const cacheKey = 'active_pools';
+  const cached = cacheGet(cacheKey);
+  if (cached) return cached;
+
+  const allPools = [];
+  for (let page = 0; page < 5; page += 1) {
+    try {
+      const data = await tryRequest([
+        { baseUrl: DATA_API, path: '/pools', params: { page: page + 1, page_size: 100 } },
+        { baseUrl: PAIR_API, path: '/pair/all', params: { page, limit: 100 } },
+      ]);
+      const pools = normalizeArray(data, ['data', 'pairs', 'pools']);
+      if (!pools.length) break;
+      allPools.push(...pools);
+      const lastTvl = numberFrom(firstDefined(pools[pools.length - 1], ['current_tvl', 'tvl', 'liquidity']), 0);
+      if (lastTvl < config.minTvlUsd / 2) break;
+    } catch (error) {
+      console.warn(`[meteora] getActivePools page ${page} failed: ${error.message}`);
+      break;
+    }
+  }
+
+  const filtered = allPools.filter((pool) => {
+    const tvl = numberFrom(firstDefined(pool, ['current_tvl', 'tvl', 'liquidity']), 0);
+    const vol24h = numberFrom(firstDefined(pool, ['trade_volume_24h', 'volume_24h', 'volume24h', 'volumeUsd24h']), 0);
+    const vol7d = numberFrom(firstDefined(pool, ['trade_volume_7d', 'volume_7d', 'volume7d', 'volumeUsd7d']), 0);
+    if (tvl < config.minTvlUsd) return false;
+    return vol24h >= config.minVolume24h || vol7d >= config.minVolume7d;
+  });
+
+  const sorted = filtered
+    .sort((left, right) => numberFrom(firstDefined(right, ['trade_volume_24h', 'volume_24h', 'volume24h', 'volumeUsd24h']), 0)
+      - numberFrom(firstDefined(left, ['trade_volume_24h', 'volume_24h', 'volume24h', 'volumeUsd24h']), 0))
+    .slice(0, config.maxPoolsToIndex);
+
+  console.log(`[meteora] active pools: ${filtered.length} found, using top ${sorted.length}`);
+  cacheSet(cacheKey, sorted, 10 * 60 * 1000);
+  return sorted;
 }
 
-export async function getPoolPositions(poolAddress, limit = 200) {
-  if (!isValidAddress(poolAddress)) throw new Error(`Invalid pool address: ${poolAddress}`);
-  return getPoolPositionsFromRpc(poolAddress, limit);
-}
-
-async function getPositionHistory(positionAddress) {
-  const raw = await request(`/positions/${encodeURIComponent(positionAddress)}/historical`);
-  return normalizeArray(raw, ['events']);
-}
-
-export async function getPositionDeposits(positionAddress) {
-  const events = await getPositionHistory(positionAddress);
-  return events.filter((event) => String(event.eventType || event.type || '').toLowerCase() === 'add');
-}
-
-export async function getPositionWithdraws(positionAddress) {
-  const events = await getPositionHistory(positionAddress);
-  return events.filter((event) => String(event.eventType || event.type || '').toLowerCase() === 'remove');
-}
-
-export async function getPositionFeeClaims(positionAddress) {
-  const events = await getPositionHistory(positionAddress);
-  return events.filter((event) => String(event.eventType || event.type || '').toLowerCase() === 'claim_fee');
-}
-
-export async function getPositionState(positionAddress) {
-  const rpcState = await getFullPositionStateFromRpc(positionAddress);
-  return rpcState || {};
+export async function getTopPools(limit = config.maxPoolsToIndex) {
+  const pools = await getActivePools();
+  return pools.slice(0, limit);
 }
 
 export async function getPool(poolAddress) {
-  if (!isValidAddress(poolAddress)) throw new Error(`Invalid pool address: ${poolAddress}`);
-  return request(`/pools/${encodeURIComponent(poolAddress)}`);
+  const cacheKey = `pool:${poolAddress}`;
+  const cached = cacheGet(cacheKey);
+  if (cached) return cached;
+
+  const data = await tryRequest([
+    { baseUrl: DATA_API, path: `/pools/${encodeURIComponent(poolAddress)}` },
+    { baseUrl: PAIR_API, path: `/pair/${encodeURIComponent(poolAddress)}` },
+  ]);
+  cacheSet(cacheKey, data, 5 * 60 * 1000);
+  return data;
 }
 
-export async function getWalletOpenPositions(wallet) {
-  if (!isValidAddress(wallet)) throw new Error(`Invalid wallet address: ${wallet}`);
+export async function getPoolPositions(poolAddress, limit = config.maxPositions) {
+  const cacheKey = `pool_pos:${poolAddress}:${limit}`;
+  const cached = cacheGet(cacheKey);
+  if (cached) return cached;
+
+  let positions;
+  try {
+    const data = await request(PAIR_API, `/pair/${encodeURIComponent(poolAddress)}/positions`, { limit });
+    positions = normalizeArray(data, ['data', 'positions']);
+  } catch (error) {
+    console.warn(`[meteora] pool positions API failed, using RPC: ${poolAddress.slice(0, 8)} ${error.message}`);
+    positions = await getPoolPositionsFromRpc(poolAddress, limit);
+  }
+
+  cacheSet(cacheKey, positions, 2 * 60 * 1000);
+  return positions;
+}
+
+async function getPaginatedPortfolio(walletAddress, path, maxPages, ttlMs) {
+  const cacheKey = `${path}:${walletAddress}`;
+  const cached = cacheGet(cacheKey);
+  if (cached) return cached;
+
+  const all = [];
+  let cursor = null;
+  let page = 0;
+  do {
+    const params = { limit: 50 };
+    if (cursor) params.cursor = cursor;
+    const data = await request(DATA_API, `/portfolio/${walletAddress}/${path}`, params);
+    const items = normalizeArray(data, ['data', 'items', 'positions']);
+    all.push(...items);
+    cursor = data?.next_cursor || data?.nextCursor || null;
+    page += 1;
+    if (cursor && page < maxPages) await sleep(100);
+  } while (cursor && page < maxPages);
+
+  cacheSet(cacheKey, all, ttlMs);
+  return all;
+}
+
+export function getPositionDeposits() {
   return [];
+}
+
+export function getPositionWithdraws() {
+  return [];
+}
+
+export function getPositionFeeClaims() {
+  return [];
+}
+
+export function getPositionState() {
+  return {};
+}
+
+export async function getWalletClosedPositions(walletAddress) {
+  return getPaginatedPortfolio(walletAddress, 'closed-positions', 20, 5 * 60 * 1000);
+}
+
+export async function getWalletOpenPositions(walletAddress) {
+  return getPaginatedPortfolio(walletAddress, 'open-positions', 10, 60 * 1000);
+}
+
+export async function getWalletPortfolio(walletAddress) {
+  const cacheKey = `portfolio:${walletAddress}`;
+  const cached = cacheGet(cacheKey);
+  if (cached) return cached;
+  const data = await request(DATA_API, `/portfolio/${walletAddress}`);
+  cacheSet(cacheKey, data, 2 * 60 * 1000);
+  return data;
 }

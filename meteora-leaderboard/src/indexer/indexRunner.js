@@ -1,14 +1,13 @@
 import cron from 'node-cron';
 import { config } from '../config.js';
-import { getSolPrice } from '../api/price.js';
 import {
+  batchUpsertWalletPnl,
   finishIndexRun,
-  insertWalletBatch,
-  insertWalletPoolBatch,
   startIndexRun,
+  upsertWalletPoolPnl,
   upsertPool,
 } from '../db/queries.js';
-import { crawlPool, crawlTopPools } from './poolCrawler.js';
+import { crawlAll } from './poolCrawler.js';
 
 let indexState = {
   isRunning: false,
@@ -29,106 +28,96 @@ export function getIndexState() {
 
 export async function runFullIndex() {
   if (indexState.isRunning) {
-    log('warn', 'Index already running');
-    return indexState;
+    console.warn('[indexer] already running, skipping');
+    return;
   }
 
-  const runId = startIndexRun();
-  const allWalletPnl = new Map();
-  const walletPoolRows = [];
-  let totalPositions = 0;
+  indexState.isRunning = true;
+  indexState.lastError = null;
+  indexState.progress = { phase: 'starting', poolsDone: 0, poolsTotal: 0, walletsFound: 0, positionsProcessed: 0 };
 
-  indexState = {
-    isRunning: true,
-    currentRunId: runId,
-    progress: { phase: 'fetching_pools', poolsDone: 0, poolsTotal: 0, walletsFound: 0, positionsProcessed: 0 },
-    lastFinished: indexState.lastFinished,
-    lastError: null,
-  };
+  const runId = startIndexRun();
+  indexState.currentRunId = runId;
 
   try {
-    const pools = await crawlTopPools();
-    indexState.progress.poolsTotal = pools.length;
-    for (const pool of pools) upsertPool(pool);
+    indexState.progress.phase = 'crawling';
 
-    indexState.progress.phase = 'computing_pnl';
-    const solPrice = await getSolPrice();
-
-    for (const pool of pools) {
-      log('info', 'Crawling pool', `${pool.name} ${pool.address}`);
-      const result = await crawlPool(pool.address, solPrice);
-      if (result.error) {
-        log('warn', 'Pool skipped', `${pool.address}: ${result.error}`);
-        indexState.progress.poolsDone += 1;
-        continue;
-      }
-
-      upsertPool(result.poolInfo);
-      totalPositions += result.totalPositions;
-      const now = Date.now();
-      for (const [wallet, data] of result.walletResults) {
-        walletPoolRows.push({
-          wallet,
-          pool_address: pool.address,
-          pool_name: pool.name,
-          pnl_usd: data.pnlUsd,
-          pnl_sol: data.pnlSol,
-          fees_earned_usd: data.feesEarnedUsd,
-          deposited_usd: data.depositedUsd,
-          withdrawn_usd: data.withdrawnUsd,
-          position_count: data.positionCount,
-          last_updated: now,
-        });
-
-        const existing = allWalletPnl.get(wallet) || {
-          pnlUsd: 0,
-          pnlSol: 0,
-          feesEarnedUsd: 0,
-          depositedUsd: 0,
-          withdrawnUsd: 0,
-          positionCount: 0,
-          poolCount: 0,
-        };
-        existing.pnlUsd += data.pnlUsd || 0;
-        existing.pnlSol += data.pnlSol || 0;
-        existing.feesEarnedUsd += data.feesEarnedUsd || 0;
-        existing.depositedUsd += data.depositedUsd || 0;
-        existing.withdrawnUsd += data.withdrawnUsd || 0;
-        existing.positionCount += data.positionCount || 0;
-        existing.poolCount += 1;
-        allWalletPnl.set(wallet, existing);
-      }
-
-      indexState.progress.poolsDone += 1;
-      indexState.progress.walletsFound = allWalletPnl.size;
-      indexState.progress.positionsProcessed = totalPositions;
-    }
+    const result = await crawlAll((progress) => {
+      indexState.progress = {
+        phase: progress.phase || 'computing_pnl',
+        poolsDone: indexState.progress.poolsDone,
+        poolsTotal: indexState.progress.poolsTotal,
+        walletsFound: progress.walletsFound || 0,
+        positionsProcessed: progress.done || 0,
+      };
+    });
+    indexState.progress.poolsDone = result.pools.length;
+    indexState.progress.poolsTotal = result.pools.length;
 
     indexState.progress.phase = 'saving';
-    insertWalletPoolBatch(walletPoolRows);
-    insertWalletBatch([...allWalletPnl.entries()].map(([wallet, data]) => ({
-      wallet,
-      pnl_usd: data.pnlUsd,
-      pnl_sol: data.pnlSol,
-      fees_earned_usd: data.feesEarnedUsd,
-      deposited_usd: data.depositedUsd,
-      withdrawn_usd: data.withdrawnUsd,
-      position_count: data.positionCount,
-      pool_count: data.poolCount,
-      last_updated: Date.now(),
-    })));
+
+    for (const pool of result.pools) {
+      upsertPool({
+        address: pool.address,
+        name: pool.name || `${pool.mint_x_symbol || '?'} / ${pool.mint_y_symbol || '?'}`,
+        token_x_mint: pool.mint_x || pool.token_x_mint || '',
+        token_y_mint: pool.mint_y || pool.token_y_mint || '',
+        token_x_symbol: pool.mint_x_symbol || pool.token_x_symbol || '',
+        token_y_symbol: pool.mint_y_symbol || pool.token_y_symbol || '',
+        bin_step: pool.bin_step || 0,
+        fee_rate: pool.base_fee_percentage || pool.fee_rate || 0,
+        tvl_usd: Number.parseFloat(pool.current_tvl || pool.tvl || pool.tvl_usd || 0) || 0,
+        volume_24h_usd: Number.parseFloat(pool.trade_volume_24h || pool.volume_24h || pool.volume_24h_usd || 0) || 0,
+        last_indexed: Date.now(),
+        position_count: 0,
+      });
+    }
+
+    const walletArray = Array.from(result.walletPnls.entries());
+    const batchSize = 500;
+    for (let index = 0; index < walletArray.length; index += batchSize) {
+      const batch = walletArray.slice(index, index + batchSize);
+      batchUpsertWalletPnl(batch.map(([wallet, data]) => ({
+        wallet,
+        pnl_usd: data.pnlUsd,
+        pnl_sol: data.pnlSol,
+        fees_earned_usd: data.feesEarnedUsd,
+        deposited_usd: data.depositedUsd,
+        withdrawn_usd: data.withdrawnUsd,
+        position_count: data.positionCount,
+        pool_count: data.poolCount,
+        last_updated: Date.now(),
+      })));
+
+      for (const [wallet, data] of batch) {
+        for (const pool of data.poolBreakdown) {
+          upsertWalletPoolPnl({
+            wallet,
+            pool_address: pool.poolAddress,
+            pool_name: pool.poolName || pool.poolAddress.slice(0, 8),
+            pnl_usd: pool.pnlUsd,
+            pnl_sol: pool.pnlSol,
+            fees_earned_usd: pool.feesUsd,
+            deposited_usd: pool.depositedUsd,
+            withdrawn_usd: pool.withdrawnUsd,
+            position_count: pool.positionCount,
+            has_open: pool.openPositions.length > 0 ? 1 : 0,
+            last_updated: Date.now(),
+          });
+        }
+      }
+    }
 
     finishIndexRun(runId, {
-      pools_indexed: pools.length,
-      wallets_found: allWalletPnl.size,
-      positions_processed: totalPositions,
+      pools_indexed: result.pools.length,
+      wallets_found: result.walletPnls.size,
+      positions_processed: result.totalWallets,
       status: 'success',
     });
     indexState.progress.phase = 'done';
     indexState.isRunning = false;
     indexState.lastFinished = Date.now();
-    log('info', `Index complete: ${pools.length} pools, ${allWalletPnl.size} wallets, ${totalPositions} positions`);
-    return indexState;
+    console.log(`Index complete: ${result.pools.length} pools, ${result.walletPnls.size} wallets`);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     finishIndexRun(runId, { status: 'error', error_message: message });

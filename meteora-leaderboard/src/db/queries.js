@@ -46,10 +46,10 @@ const upsertWalletPnlStmt = db.prepare(`
 const upsertWalletPoolPnlStmt = db.prepare(`
   INSERT INTO wallet_pool_pnl (
     wallet, pool_address, pool_name, pnl_usd, pnl_sol, fees_earned_usd,
-    deposited_usd, withdrawn_usd, position_count, last_updated
+    deposited_usd, withdrawn_usd, position_count, has_open, last_updated
   ) VALUES (
     @wallet, @pool_address, @pool_name, @pnl_usd, @pnl_sol, @fees_earned_usd,
-    @deposited_usd, @withdrawn_usd, @position_count, @last_updated
+    @deposited_usd, @withdrawn_usd, @position_count, @has_open, @last_updated
   )
   ON CONFLICT(wallet, pool_address) DO UPDATE SET
     pool_name = excluded.pool_name,
@@ -59,6 +59,7 @@ const upsertWalletPoolPnlStmt = db.prepare(`
     deposited_usd = excluded.deposited_usd,
     withdrawn_usd = excluded.withdrawn_usd,
     position_count = excluded.position_count,
+    has_open = excluded.has_open,
     last_updated = excluded.last_updated
 `);
 
@@ -66,8 +67,10 @@ export const insertWalletBatch = db.transaction((items) => {
   for (const item of items) upsertWalletPnlStmt.run(item);
 });
 
+export const batchUpsertWalletPnl = insertWalletBatch;
+
 export const insertWalletPoolBatch = db.transaction((items) => {
-  for (const item of items) upsertWalletPoolPnlStmt.run(item);
+  for (const item of items) upsertWalletPoolPnlStmt.run({ has_open: 0, ...item });
 });
 
 export function upsertPool(pool) {
@@ -87,7 +90,7 @@ export function upsertWalletPnl(data) {
 }
 
 export function upsertWalletPoolPnl(data) {
-  upsertWalletPoolPnlStmt.run(data);
+  upsertWalletPoolPnlStmt.run({ has_open: 0, ...data });
 }
 
 export function getLeaderboard({ mode = 'winners', limit = 50, offset = 0, pool = null }) {

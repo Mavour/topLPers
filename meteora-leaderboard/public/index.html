@@ -90,6 +90,21 @@
       tr[data-wallet]:hover { background: rgba(255,255,255,0.025); }
       .wallet strong { display: block; }
       .wallet small { display: block; color: var(--text-mid); margin-top: 6px; }
+      .wallet-cell { display: inline-flex; align-items: center; gap: 8px; }
+      .wallet-short { font-weight: 700; }
+      .btn-copy {
+        background: none;
+        border: none;
+        cursor: pointer;
+        color: var(--text-lo);
+        padding: 2px 4px;
+        border-radius: 4px;
+        opacity: 0;
+        transition: opacity .15s, color .15s, background .15s;
+      }
+      .wallet-cell:hover .btn-copy { opacity: 1; }
+      .btn-copy:hover { color: var(--text-mid); background: var(--bg-3); }
+      .btn-copy.copied { color: var(--green); opacity: 1; }
       .rank { color: var(--amber); font-weight: 800; }
       .pos-pill { display: inline-flex; min-width: 34px; height: 34px; justify-content: center; align-items: center; background: var(--bg-3); border-radius: 8px; }
       .result-card, .empty-state { padding: 24px; color: var(--text-mid); }
@@ -100,10 +115,25 @@
       .pool-card span { display: block; color: var(--text-mid); font-size: 13px; margin-top: 4px; }
       .drawer { position: fixed; inset: 0; display: none; background: rgba(0,0,0,0.5); }
       .drawer.active { display: block; }
-      .drawer-panel { margin-left: auto; width: min(460px, 100vw); min-height: 100vh; background: var(--bg-1); border-left: 1px solid var(--border-hi); padding: 24px; }
+      .drawer-panel { margin-left: auto; width: min(520px, 100vw); min-height: 100vh; max-height: 100vh; overflow-y: auto; background: var(--bg-1); border-left: 1px solid var(--border-hi); padding: 24px; }
       .drawer-head { display: flex; justify-content: space-between; gap: 16px; align-items: start; margin-bottom: 24px; }
+      .drawer-actions { display: flex; gap: 8px; margin-top: 8px; }
+      .drawer-actions button, .drawer-actions a { display: inline-flex; align-items: center; gap: 6px; color: var(--text-mid); text-decoration: none; background: var(--bg-2); border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; font-size: 12px; }
       .breakdown { margin-top: 18px; display: grid; gap: 8px; }
       .breakdown-row { display: grid; grid-template-columns: 1fr auto; gap: 12px; padding: 12px; background: var(--bg-2); border-radius: 8px; }
+      .modal-tabs { display: flex; gap: 18px; border-bottom: 1px solid var(--border); margin: 18px 0 10px; }
+      .modal-tab { background: none; border: 0; border-bottom: 2px solid transparent; border-radius: 0; color: var(--text-lo); padding: 10px 0; }
+      .modal-tab.on { color: var(--green); border-bottom-color: var(--green); }
+      .modal-tab-badge { font-size: 10px; padding: 1px 6px; border-radius: 10px; background: var(--bg-3); color: var(--text-mid); }
+      .modal-pool-row { padding: 12px 0; border-bottom: 1px solid var(--border); }
+      .modal-pool-header { display: flex; justify-content: space-between; gap: 12px; margin-bottom: 6px; }
+      .modal-pool-name { font-weight: 700; }
+      .modal-pool-status-open { color: var(--green); background: var(--green-dim); border-radius: 4px; padding: 2px 8px; font-size: 11px; }
+      .modal-pool-status-closed { color: var(--text-lo); background: var(--bg-3); border-radius: 4px; padding: 2px 8px; font-size: 11px; }
+      .modal-pool-addr { display: flex; align-items: center; gap: 8px; color: var(--text-lo); font-family: monospace; font-size: 12px; margin-bottom: 10px; }
+      .modal-pool-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+      .modal-pool-stat-label { color: var(--text-lo); font-size: 10px; text-transform: uppercase; letter-spacing: 1px; }
+      .modal-pool-stat-val { margin-top: 3px; font-size: 13px; }
       .spinner { width: 22px; height: 22px; border: 3px solid var(--border-hi); border-top-color: var(--green); border-radius: 50%; animation: spin 0.9s linear infinite; }
       @keyframes spin { to { transform: rotate(360deg); } }
       @media (max-width: 760px) {
@@ -192,8 +222,16 @@
           <div>
             <h2>Wallet Detail</h2>
             <p id="drawerWallet"></p>
+            <div class="drawer-actions">
+              <button id="drawerCopy" type="button">Copy</button>
+              <a id="drawerSolscan" href="#" target="_blank" rel="noopener">Solscan</a>
+            </div>
           </div>
           <button id="closeDrawer" type="button">x</button>
+        </div>
+        <div class="modal-tabs">
+          <button class="modal-tab on" id="mtOpen" type="button">Open <span class="modal-tab-badge" id="mtOpenBadge">0</span></button>
+          <button class="modal-tab" id="mtClosed" type="button">Closed <span class="modal-tab-badge" id="mtClosedBadge">0</span></button>
         </div>
         <div id="drawerContent"></div>
       </aside>
@@ -231,7 +269,18 @@
         drawerWallet: document.getElementById('drawerWallet'),
         drawerContent: document.getElementById('drawerContent'),
         closeDrawer: document.getElementById('closeDrawer'),
+        drawerCopy: document.getElementById('drawerCopy'),
+        drawerSolscan: document.getElementById('drawerSolscan'),
+        mtOpen: document.getElementById('mtOpen'),
+        mtClosed: document.getElementById('mtClosed'),
+        mtOpenBadge: document.getElementById('mtOpenBadge'),
+        mtClosedBadge: document.getElementById('mtClosedBadge'),
       };
+      let modalWalletAddr = null;
+      let modalData = null;
+      let modalTab = 'open';
+      const copyIcon = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+      const checkIcon = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>';
 
       function formatUsd(n, digits = 0) {
         const value = Number(n) || 0;
@@ -247,6 +296,10 @@
 
       function shortWallet(addr) {
         return addr && addr.length > 12 ? `${addr.slice(0, 6)}...${addr.slice(-4)}` : addr || '-';
+      }
+
+      function escHtml(str) {
+        return String(str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
       }
 
       function timeAgo(ts) {
@@ -297,7 +350,15 @@
           tr.dataset.wallet = row.wallet;
           tr.innerHTML = `
             <td class="rank">${String(row.rank).padStart(2, '0')}</td>
-            <td><div class="wallet"><strong>${shortWallet(row.wallet)}</strong><small>${row.wallet}</small></div></td>
+            <td>
+              <div class="wallet">
+                <div class="wallet-cell">
+                  <span class="wallet-short" data-full="${row.wallet}">${shortWallet(row.wallet)}</span>
+                  <button class="btn-copy" data-addr="${row.wallet}" title="Copy address" type="button">${copyIcon}</button>
+                </div>
+                <small>${row.wallet}</small>
+              </div>
+            </td>
             <td class="${pnlClass}">${formatSol(row.pnlSol)}</td>
             <td class="${pnlClass}">${formatUsd(row.pnlUsd, 2)}</td>
             <td>${formatUsd(row.feesEarnedUsd, 2).replace('+', '')}</td>
@@ -394,6 +455,46 @@
         `;
       }
 
+      function renderModalPools() {
+        if (!modalData) return;
+        const breakdown = modalData.poolBreakdown || [];
+        const pools = modalTab === 'open'
+          ? breakdown.filter((pool) => pool.hasOpenPosition)
+          : breakdown.filter((pool) => !pool.hasOpenPosition);
+        if (!pools.length) {
+          el.drawerContent.innerHTML = `<div class="empty-state">${modalTab === 'open' ? 'No active positions in any pool.' : 'No closed positions found.'}</div>`;
+          return;
+        }
+        el.drawerContent.innerHTML = pools.map((pool) => {
+          const pnlClass = pool.pnlUsd > 0 ? 'positive' : pool.pnlUsd < 0 ? 'negative' : '';
+          const shortAddr = shortWallet(pool.poolAddress);
+          return `
+            <div class="modal-pool-row">
+              <div class="modal-pool-header">
+                <div class="modal-pool-name">${escHtml(pool.poolName || shortAddr)}</div>
+                <span class="${pool.hasOpenPosition ? 'modal-pool-status-open' : 'modal-pool-status-closed'}">${pool.hasOpenPosition ? 'Active' : 'Closed'}</span>
+              </div>
+              <div class="modal-pool-addr">
+                <span>${shortAddr}</span>
+                <button class="btn-copy copied" data-addr="${pool.poolAddress}" type="button">${copyIcon}</button>
+                <a href="https://app.meteora.ag/dlmm/${pool.poolAddress}" target="_blank" rel="noopener">Meteora</a>
+              </div>
+              <div class="modal-pool-stats">
+                <div><div class="modal-pool-stat-label">PnL</div><div class="modal-pool-stat-val ${pnlClass}">${formatUsd(pool.pnlUsd, 2)}</div></div>
+                <div><div class="modal-pool-stat-label">Fees</div><div class="modal-pool-stat-val">${formatUsd(pool.feesEarnedUsd, 2).replace('+', '')}</div></div>
+                <div><div class="modal-pool-stat-label">Positions</div><div class="modal-pool-stat-val">${pool.positionCount || 0}</div></div>
+              </div>
+            </div>`;
+        }).join('');
+      }
+
+      function switchModalTab(tab) {
+        modalTab = tab;
+        el.mtOpen.classList.toggle('on', tab === 'open');
+        el.mtClosed.classList.toggle('on', tab === 'closed');
+        renderModalPools();
+      }
+
       async function fetchPools() {
         try {
           const result = await api('/api/pools', { limit: 100 });
@@ -412,12 +513,23 @@
       }
 
       async function openWalletModal(wallet) {
+        modalWalletAddr = wallet;
+        modalData = null;
+        modalTab = 'open';
         el.drawer.classList.add('active');
         el.drawerWallet.textContent = wallet;
+        el.drawerSolscan.href = `https://solscan.io/account/${wallet}`;
         el.drawerContent.textContent = 'Loading wallet...';
+        document.body.style.overflow = 'hidden';
         try {
           const result = await api(`/api/wallet/${wallet}`);
-          el.drawerContent.innerHTML = walletHtml(result);
+          modalData = result;
+          const openCount = result.poolBreakdown.filter((pool) => pool.hasOpenPosition).length;
+          const closedCount = result.poolBreakdown.length - openCount;
+          el.mtOpenBadge.textContent = String(openCount);
+          el.mtClosedBadge.textContent = String(closedCount);
+          modalTab = openCount > 0 ? 'open' : 'closed';
+          switchModalTab(modalTab);
         } catch (error) {
           el.drawerContent.textContent = error.message;
         }
@@ -425,6 +537,9 @@
 
       function closeModal() {
         el.drawer.classList.remove('active');
+        document.body.style.overflow = '';
+        modalWalletAddr = null;
+        modalData = null;
       }
 
       function setMode(mode) {
@@ -442,13 +557,54 @@
         if (tab === 'pools') fetchPools();
       }
 
-      function copyToClipboard(text) {
-        return navigator.clipboard.writeText(text);
+      function copyAddr(btn) {
+        const addr = btn.dataset.addr;
+        const done = () => {
+          btn.classList.add('copied');
+          btn.innerHTML = checkIcon;
+          setTimeout(() => {
+            btn.classList.remove('copied');
+            btn.innerHTML = copyIcon;
+          }, 1800);
+        };
+        if (navigator.clipboard?.writeText) {
+          navigator.clipboard.writeText(addr).then(done).catch(() => fallbackCopy(addr, done));
+        } else {
+          fallbackCopy(addr, done);
+        }
+      }
+
+      function fallbackCopy(text, done) {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        done();
+      }
+
+      function copyModalAddr() {
+        if (!modalWalletAddr) return;
+        const button = el.drawerCopy;
+        button.dataset.addr = modalWalletAddr;
+        copyAddr(button);
       }
 
       document.getElementById('tableBody').addEventListener('click', (event) => {
+        const copyButton = event.target.closest('.btn-copy');
+        if (copyButton) {
+          copyAddr(copyButton);
+          return;
+        }
         const row = event.target.closest('[data-wallet]');
         if (row) openWalletModal(row.dataset.wallet);
+      });
+      el.drawerContent.addEventListener('click', (event) => {
+        const copyButton = event.target.closest('.btn-copy');
+        if (copyButton) copyAddr(copyButton);
       });
       document.querySelectorAll('[data-mode]').forEach((button) => button.addEventListener('click', () => setMode(button.dataset.mode)));
       document.querySelectorAll('[data-tab]').forEach((button) => button.addEventListener('click', () => setTab(button.dataset.tab)));
@@ -476,8 +632,14 @@
         fetchLeaderboard();
       });
       el.closeDrawer.addEventListener('click', closeModal);
+      el.drawerCopy.addEventListener('click', copyModalAddr);
+      el.mtOpen.addEventListener('click', () => switchModalTab('open'));
+      el.mtClosed.addEventListener('click', () => switchModalTab('closed'));
       el.drawer.addEventListener('click', (event) => {
         if (event.target === el.drawer) closeModal();
+      });
+      document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') closeModal();
       });
 
       setInterval(fetchStatus, 10_000);
