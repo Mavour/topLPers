@@ -4,6 +4,12 @@ const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvw
 export const BASE58_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const positionStateCache = new Map();
+const KNOWN_DECIMALS = new Map([
+  ['So11111111111111111111111111111111111111112', 9],
+  ['EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v', 6],
+  ['Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB', 6],
+  ['2b1kV6DkPAnxd5ixfnxCpjxmKwqjjaYmCZfHsFu24GXo', 6],
+]);
 
 export function isValidAddress(value) {
   return typeof value === 'string' && BASE58_RE.test(value.trim());
@@ -33,6 +39,36 @@ export function normalizeArray(raw, preferredKeys = []) {
     if (Array.isArray(raw?.data?.[key])) return raw.data[key];
   }
   return [];
+}
+
+export function tokenMint(pool, side) {
+  const upper = side.toUpperCase();
+  const lower = side.toLowerCase();
+  return firstDefined(pool, [
+    `token_${lower}_mint`,
+    `token${upper}Mint`,
+    `mint_${lower}`,
+    `mint${upper}`,
+    `token${upper}.mint`,
+    `token_${lower}.mint`,
+    `token${upper}.address`,
+    `token_${lower}.address`,
+  ]);
+}
+
+export function getTokenDecimals(pool, side) {
+  const mint = tokenMint(pool, side);
+  const known = KNOWN_DECIMALS.get(String(mint || ''));
+  if (known !== undefined) return known;
+
+  const upper = side.toUpperCase();
+  const lower = side.toLowerCase();
+  return numberFrom(firstDefined(pool, [
+    `token_${lower}_decimals`,
+    `token${upper}Decimals`,
+    `token${upper}.decimals`,
+    `token_${lower}.decimals`,
+  ]), 9);
 }
 
 function base58Encode(bytes) {
@@ -115,7 +151,7 @@ function decodePositionStateFromAccount(data) {
   if (!data) return null;
   try {
     const bytes = Buffer.from(data, 'base64');
-    if (bytes.length < 96) return null;
+    if (bytes.length < 16) return null;
     const readU64 = (buf, offset) => {
       let value = 0n;
       for (let index = 7; index >= 0; index -= 1) {
@@ -127,9 +163,10 @@ function decodePositionStateFromAccount(data) {
     return {
       totalXAmount: Number(readU64(bytes, 0)),
       totalYAmount: Number(readU64(bytes, 8)),
-      unclaimedFeeX: Number(readU64(bytes, 16)),
-      unclaimedFeeY: Number(readU64(bytes, 24)),
+      unclaimedFeeX: 0,
+      unclaimedFeeY: 0,
       amountsAreRaw: true,
+      feesAreVerified: false,
       source: 'solana-rpc',
     };
   } catch {
@@ -146,7 +183,7 @@ async function getFullPositionStateFromRpc(positionAddress) {
   try {
     const result = await rpcRequest('getAccountInfo', [
       positionAddress,
-      { encoding: 'base64', dataSlice: { offset: 0, length: 96 } },
+      { encoding: 'base64', dataSlice: { offset: 0, length: 16 } },
     ]);
     value = decodePositionStateFromAccount(result?.value?.data?.[0]);
   } catch {
@@ -179,8 +216,8 @@ async function getPoolPositionsFromRpc(poolAddress, limit) {
 
 export async function getTopPools(limit = 50) {
   const raw = await tryRequest([
-    { path: '/pair/all', params: { page: 0, limit, sort_key: 'tvl', order_by: 'desc' } },
     { path: '/pools', params: { page: 1, page_size: Math.min(limit, 100) } },
+    { path: '/pair/all', params: { page: 0, limit, sort_key: 'tvl', order_by: 'desc' } },
   ]);
   return normalizeArray(raw, ['data', 'pairs', 'pools'])
     .sort((left, right) => numberFrom(firstDefined(right, ['current_tvl', 'tvl', 'liquidity'])) - numberFrom(firstDefined(left, ['current_tvl', 'tvl', 'liquidity'])))

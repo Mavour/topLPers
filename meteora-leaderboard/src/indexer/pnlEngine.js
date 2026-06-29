@@ -1,10 +1,12 @@
 import {
   firstDefined,
+  getTokenDecimals,
   getPositionDeposits,
   getPositionFeeClaims,
   getPositionState,
   getPositionWithdraws,
   numberFrom,
+  tokenMint as poolTokenMint,
 } from '../api/meteora.js';
 import { getSolPrice, isStablecoin, SOL_MINT } from '../api/price.js';
 
@@ -17,18 +19,7 @@ export function poolAddress(pool) {
 }
 
 export function tokenMint(pool, side) {
-  const upper = side.toUpperCase();
-  const lower = side.toLowerCase();
-  return nestedFirst(pool, [
-    `token_${lower}_mint`,
-    `token${upper}Mint`,
-    `mint_${lower}`,
-    `mint${upper}`,
-    `token${upper}.mint`,
-    `token_${lower}.mint`,
-    `token${upper}.address`,
-    `token_${lower}.address`,
-  ]);
+  return poolTokenMint(pool, side);
 }
 
 export function tokenSymbol(pool, side) {
@@ -43,14 +34,7 @@ export function tokenSymbol(pool, side) {
 }
 
 function tokenDecimals(pool, side) {
-  const upper = side.toUpperCase();
-  const lower = side.toLowerCase();
-  return numberFrom(nestedFirst(pool, [
-    `token_${lower}_decimals`,
-    `token${upper}Decimals`,
-    `token${upper}.decimals`,
-    `token_${lower}.decimals`,
-  ]), 9);
+  return getTokenDecimals(pool, side);
 }
 
 export function poolName(pool) {
@@ -69,6 +53,26 @@ function amountFrom(row, keys) {
 
 function scaleRawAmount(value, decimals) {
   return value / 10 ** decimals;
+}
+
+function looksLikeRawAmount(value, mint) {
+  if (!Number.isFinite(value) || value <= 0) return false;
+  if (mint === SOL_MINT) return value >= 1e11;
+  if (isStablecoin(mint)) return value >= 1e8;
+  return value >= 1e9;
+}
+
+function safeScaleAmount(value, mint, decimals) {
+  return looksLikeRawAmount(value, mint) ? scaleRawAmount(value, decimals) : value;
+}
+
+function safeScaleEventAmounts(amounts, poolInfo) {
+  const xMint = tokenMint(poolInfo, 'x');
+  const yMint = tokenMint(poolInfo, 'y');
+  return {
+    x: safeScaleAmount(amounts.x, xMint, tokenDecimals(poolInfo, 'x')),
+    y: safeScaleAmount(amounts.y, yMint, tokenDecimals(poolInfo, 'y')),
+  };
 }
 
 function eventTokenAmounts(event) {
@@ -123,7 +127,7 @@ function eventUsdValue(event, poolInfo, currentPrices, solPrice) {
   const directUsd = amountFrom(event, ['totalUsd', 'total_usd', 'valueUsd', 'value_usd']);
   if (directUsd > 0) return directUsd;
   const prices = pricesForEvent(event, poolInfo, currentPrices, solPrice);
-  return usdValue(eventTokenAmounts(event), prices.priceX, prices.priceY);
+  return usdValue(safeScaleEventAmounts(eventTokenAmounts(event), poolInfo), prices.priceX, prices.priceY);
 }
 
 function zeroResult(positionAddress, error = null) {
@@ -141,6 +145,11 @@ function zeroResult(positionAddress, error = null) {
     isActive: false,
     error,
   };
+}
+
+function isPnlSuspect({ pnlUsd, depositedUsd, withdrawnUsd }) {
+  const base = Math.max(Math.abs(depositedUsd || 0), Math.abs(withdrawnUsd || 0), 1);
+  return Math.abs(pnlUsd || 0) > base * 1_000_000;
 }
 
 export async function computePositionPnl(positionAddress, poolInfo, currentPrices) {
@@ -161,11 +170,15 @@ export async function computePositionPnl(positionAddress, poolInfo, currentPrice
     const withdrawnUsd = withdraws.reduce((sum, event) => sum + eventUsdValue(event, poolInfo, currentPrices, solPrice), 0);
     const currentAmounts = currentTokenAmounts(positionState, poolInfo);
     const currentUsd = usdValue(currentAmounts, priceX, priceY);
-    const unclaimedUsd = usdValue(feeTokenAmounts(positionState, poolInfo), priceX, priceY);
+    const unclaimedUsd = positionState.feesAreVerified === false ? 0 : usdValue(feeTokenAmounts(positionState, poolInfo), priceX, priceY);
     const claimedFeesUsd = feeClaims.reduce((sum, event) => sum + eventUsdValue(event, poolInfo, currentPrices, solPrice), 0)
-      + withdraws.reduce((sum, event) => sum + usdValue(feeTokenAmounts(event), priceX, priceY), 0);
+      + withdraws.reduce((sum, event) => sum + usdValue(safeScaleEventAmounts(feeTokenAmounts(event), poolInfo), priceX, priceY), 0);
     const feesEarnedUsd = claimedFeesUsd + unclaimedUsd;
     const pnlUsd = withdrawnUsd + currentUsd + feesEarnedUsd - depositedUsd;
+
+    if (isPnlSuspect({ pnlUsd, depositedUsd, withdrawnUsd })) {
+      return zeroResult(positionAddress, `suspect PnL rejected: ${pnlUsd}`);
+    }
 
     return {
       positionAddress,
@@ -178,7 +191,7 @@ export async function computePositionPnl(positionAddress, poolInfo, currentPrice
       feesEarnedUsd,
       depositCount: deposits.length,
       withdrawCount: withdraws.length,
-      isActive: currentAmounts.x > 0 || currentAmounts.y > 0,
+      isActive: currentUsd > 0.01,
       error: null,
     };
   } catch (error) {
