@@ -36,6 +36,20 @@ function positionStatus(position) {
   return position.isActive ? 'open' : 'closed';
 }
 
+function looksLikeAddress(value) {
+  return isValidAddress(String(value || ''));
+}
+
+function displayPoolName(row, meta = null) {
+  const stored = row?.pool_name || row?.poolName;
+  if (stored && !looksLikeAddress(stored)) return stored;
+  if (meta?.name && !looksLikeAddress(meta.name)) return meta.name;
+  const x = meta?.token_x_symbol || '';
+  const y = meta?.token_y_symbol || '';
+  if (x || y) return `${x || '?'}-${y || '?'}`;
+  return stored || row?.pool_address || row?.poolAddress || 'Unknown pool';
+}
+
 function rangeWidthPct(position, pool) {
   const lower = Number(position.lowerBinId);
   const upper = Number(position.upperBinId);
@@ -180,10 +194,12 @@ router.get('/:address', async (req, res) => {
       return poolMetaCache.get(poolAddress);
     }
 
-    const pools = new Map(poolBreakdown.map((row) => [row.pool_address, {
+    const pools = new Map(poolBreakdown.map((row) => {
+      const meta = poolMeta(row.pool_address);
+      return [row.pool_address, {
       poolAddress: row.pool_address,
-      poolName: row.pool_name,
-      binStep: Number(poolMeta(row.pool_address)?.bin_step || 0),
+      poolName: displayPoolName(row, meta),
+      binStep: Number(meta?.bin_step || 0),
       pnlUsd: row.pnl_usd,
       pnlSol: row.pnl_sol,
       feesEarnedUsd: row.fees_earned_usd,
@@ -193,7 +209,8 @@ router.get('/:address', async (req, res) => {
       hasOpenPosition: Boolean(row.has_open),
       openPositions: [],
       closedPositions: [],
-    }]));
+    }];
+    }));
 
     function ensurePool(poolAddress, poolName = null) {
       const key = poolAddress || 'unknown';
@@ -201,7 +218,7 @@ router.get('/:address', async (req, res) => {
         const meta = poolMeta(key);
         pools.set(key, {
           poolAddress: key,
-          poolName: poolName || meta?.name || key,
+          poolName: displayPoolName({ poolName, poolAddress: key }, meta),
           binStep: Number(meta?.bin_step || 0),
           pnlUsd: 0,
           pnlSol: 0,
@@ -226,6 +243,7 @@ router.get('/:address', async (req, res) => {
       const pool = ensurePool(position.poolAddress, position.poolName);
       if (hasPosition(pool, position.positionAddress)) continue;
       const decorated = { ...position, setup: mergedSetup(position, pool) };
+      decorated.binStep = pool.binStep;
       if (position.status === 'open') {
         pool.hasOpenPosition = true;
         pool.openPositions.push(decorated);
@@ -250,6 +268,7 @@ router.get('/:address', async (req, res) => {
         binRange: position.binRange,
         lowerBinId: position.lowerBinId,
         upperBinId: position.upperBinId,
+        binStep: pool.binStep,
         createdAt: flexibleIso(position.createdAt),
         closedAt: null,
         durationSeconds: null,
@@ -277,6 +296,7 @@ router.get('/:address', async (req, res) => {
         binRange: position.binRange,
         lowerBinId: position.lowerBinId,
         upperBinId: position.upperBinId,
+        binStep: pool.binStep,
         setup: positionSetup(position, pool),
       });
     }

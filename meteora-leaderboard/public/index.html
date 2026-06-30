@@ -374,6 +374,20 @@
         return pool.poolName || shortWallet(pool.poolAddress);
       }
 
+      function rangeLine(position) {
+        const setup = position.setup || [];
+        const existing = setup.find((line) => String(line).startsWith('RANGE '));
+        if (existing) return existing;
+        const lower = Number(position.lowerBinId);
+        const upper = Number(position.upperBinId);
+        const binStep = Number(position.binStep || position.poolBinStep || 0);
+        if (!Number.isFinite(lower) || !Number.isFinite(upper) || !Number.isFinite(binStep) || binStep <= 0) return null;
+        const width = Math.abs(upper - lower) + 1;
+        const pct = (Math.pow(1 + binStep / 10_000, width) - 1) * 100;
+        const digits = Math.abs(pct) >= 10 ? 1 : 2;
+        return `RANGE +${pct.toFixed(digits)}% FROM ENTRY (${binStep} bps/bin)`;
+      }
+
       async function api(path, params = {}) {
         const url = new URL(path, window.location.origin);
         Object.entries(params).forEach(([key, value]) => {
@@ -567,8 +581,11 @@
             const entryText = entryUsd > 0 || entryTime !== '-'
               ? `${entryUsd > 0 ? formatUsd(entryUsd, 1).replace('+', '') : 'Amount not indexed'} at ${entryTime}`
               : 'Entry data not indexed yet';
-            const setup = (position.setup || []).length
-              ? position.setup.join('\n')
+            const setupLines = [...(position.setup || [])];
+            const computedRange = rangeLine(position);
+            if (computedRange && !setupLines.some((line) => String(line).startsWith('RANGE '))) setupLines.push(computedRange);
+            const setup = setupLines.length
+              ? setupLines.join('\n')
               : (position.binRange ? `BIN RANGE ${position.binRange}` : 'No bin setup data indexed yet.');
             const positionTitle = position.aggregateOnly ? 'Aggregate pool row' : shortWallet(posAddr);
             const actions = posAddr
