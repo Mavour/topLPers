@@ -199,6 +199,9 @@ function feeTokenAmounts(row) {
       'feeXAmount',
       'fees_x_amount',
       'feesXAmount',
+      'feeAmountX',
+      'fee_amount_x',
+      'feeX',
       'unclaimedFeeX',
       'unclaimed_fee_x',
       'fee_x',
@@ -208,6 +211,9 @@ function feeTokenAmounts(row) {
       'feeYAmount',
       'fees_y_amount',
       'feesYAmount',
+      'feeAmountY',
+      'fee_amount_y',
+      'feeY',
       'unclaimedFeeY',
       'unclaimed_fee_y',
       'fee_y',
@@ -229,6 +235,34 @@ function eventUsdValue(event, poolInfo, currentPrices) {
   const rawAmounts = eventTokenAmounts(event);
   const amounts = safeScaleEventAmounts(rawAmounts, poolInfo);
   return usdValue(amounts, eventPrices.priceX, eventPrices.priceY);
+}
+
+function eventFeeUsdValue(event, poolInfo, currentPrices, { fallbackToEventValue = false } = {}) {
+  const directUsd = amountFrom(event, [
+    'feeUsd',
+    'fee_usd',
+    'feesUsd',
+    'fees_usd',
+    'lpFeeUsd',
+    'lp_fee_usd',
+    'tradingFeeUsd',
+    'trading_fee_usd',
+    'totalFeeUsd',
+    'total_fee_usd',
+  ]);
+  if (directUsd > 0) {
+    return directUsd;
+  }
+
+  const eventPrices = pricesForEvent(event, poolInfo, currentPrices);
+  const rawFees = feeTokenAmounts(event);
+  const fees = safeScaleEventAmounts(rawFees, poolInfo);
+  const feeUsd = usdValue(fees, eventPrices.priceX, eventPrices.priceY);
+  if (feeUsd > 0) {
+    return feeUsd;
+  }
+
+  return fallbackToEventValue ? eventUsdValue(event, poolInfo, currentPrices) : 0;
 }
 
 function zeroResult(positionAddress, owner, error = null) {
@@ -279,14 +313,17 @@ export async function computePositionPnl(positionAddress, owner, poolInfo, curre
     const totalWithdrawnUsd = withdraws.reduce((sum, event) => {
       return sum + eventUsdValue(event, poolInfo, currentPrices);
     }, 0);
+    const withdrawFeesUsd = withdraws.reduce((sum, event) => {
+      return sum + eventFeeUsdValue(event, poolInfo, currentPrices);
+    }, 0);
 
     const amounts = safeScaleEventAmounts(currentTokenAmounts(positionState), poolInfo);
     const currentPositionUsd = usdValue(amounts, priceX, priceY);
     const fees = safeScaleEventAmounts(feeTokenAmounts(positionState), poolInfo);
     const unclaimedFeesUsd = usdValue(fees, priceX, priceY);
     const claimedFeesUsd = feeClaims.reduce((sum, event) => {
-      return sum + eventUsdValue(event, poolInfo, currentPrices);
-    }, 0);
+      return sum + eventFeeUsdValue(event, poolInfo, currentPrices, { fallbackToEventValue: true });
+    }, withdrawFeesUsd);
     const feesEarnedUsd = claimedFeesUsd + unclaimedFeesUsd;
     const pnlUsd = totalWithdrawnUsd + currentPositionUsd + feesEarnedUsd - totalDepositedUsd;
 

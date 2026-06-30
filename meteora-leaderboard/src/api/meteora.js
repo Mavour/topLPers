@@ -9,6 +9,7 @@ const POSITION_HEADER_BYTES = 72;
 const POSITION_BIN_RANGE_BYTES = 7920;
 const LOWER_BIN_ID_OFFSET = 7912;
 const UPPER_BIN_ID_OFFSET = 7916;
+const MAX_HISTORY_PAGES = Number.parseInt(process.env.MAX_POSITION_HISTORY_PAGES, 10) || 50;
 
 const KNOWN_DECIMALS = new Map([
   ['So11111111111111111111111111111111111111112', 9],
@@ -352,16 +353,22 @@ async function getPaginatedPortfolio(walletAddress, path, maxPages, ttlMs) {
   return all;
 }
 
-export function getPositionDeposits() {
-  return [];
+export async function getPositionDeposits(positionAddress) {
+  if (!isValidAddress(positionAddress)) return [];
+  const events = await getPositionHistory(positionAddress);
+  return events.filter(isAddEvent);
 }
 
-export function getPositionWithdraws() {
-  return [];
+export async function getPositionWithdraws(positionAddress) {
+  if (!isValidAddress(positionAddress)) return [];
+  const events = await getPositionHistory(positionAddress);
+  return events.filter(isRemoveEvent);
 }
 
-export function getPositionFeeClaims() {
-  return [];
+export async function getPositionFeeClaims(positionAddress) {
+  if (!isValidAddress(positionAddress)) return [];
+  const events = await getPositionHistory(positionAddress);
+  return events.filter(isFeeEvent);
 }
 
 function readU64LE(bytes, offset) {
@@ -384,6 +391,7 @@ function isRemoveEvent(event) {
 function isFeeEvent(event) {
   const type = eventType(event);
   return ['claim_fee', 'claim_fees', 'fee_claim', 'fee_claimed', 'claim'].includes(type)
+    || type === 'swap'
     || (type.includes('fee') && type.includes('claim'));
 }
 
@@ -403,13 +411,82 @@ function eventUsd(event) {
   return x + y;
 }
 
+function eventFeeUsd(event) {
+  const direct = numberFrom(firstDefined(event, [
+    'feeUsd',
+    'fee_usd',
+    'feesUsd',
+    'fees_usd',
+    'lpFeeUsd',
+    'lp_fee_usd',
+    'tradingFeeUsd',
+    'trading_fee_usd',
+    'totalFeeUsd',
+    'total_fee_usd',
+  ]), NaN);
+  if (Number.isFinite(direct)) return direct;
+
+  const x = numberFrom(firstDefined(event, [
+    'feeXUsd',
+    'fee_x_usd',
+    'feeAmountXUsd',
+    'fee_amount_x_usd',
+    'feesXUsd',
+    'fees_x_usd',
+  ]), 0);
+  const y = numberFrom(firstDefined(event, [
+    'feeYUsd',
+    'fee_y_usd',
+    'feeAmountYUsd',
+    'fee_amount_y_usd',
+    'feesYUsd',
+    'fees_y_usd',
+  ]), 0);
+  if (x > 0 || y > 0) return x + y;
+
+  return eventType(event) === 'swap' ? 0 : eventUsd(event);
+}
+
+function nextHistoryPage(raw, page, eventCount) {
+  const explicit = firstDefined(raw, ['nextPage', 'next_page', 'pagination.nextPage', 'pagination.next_page']);
+  const parsed = Number.parseInt(explicit, 10);
+  if (Number.isFinite(parsed) && parsed !== page) return parsed;
+
+  const hasMore = firstDefined(raw, [
+    'hasNextPage',
+    'has_next_page',
+    'hasMore',
+    'has_more',
+    'pagination.hasNextPage',
+    'pagination.has_next_page',
+    'pagination.hasMore',
+    'pagination.has_more',
+  ]);
+  if (hasMore === true || hasMore === 'true') return page + 1;
+
+  return eventCount > 0 && eventCount >= 100 ? page + 1 : null;
+}
+
 async function getPositionHistory(positionAddress) {
   if (!isValidAddress(positionAddress)) return [];
   const cacheKey = `history:${positionAddress}`;
   const cached = cacheGet(cacheKey);
   if (cached) return cached;
-  const raw = await request(DATA_API, `/positions/${encodeURIComponent(positionAddress)}/historical`);
-  const events = normalizeArray(raw, ['events']);
+
+  const events = [];
+  let page = 0;
+  const seenPages = new Set();
+  while (!seenPages.has(page) && seenPages.size < MAX_HISTORY_PAGES) {
+    seenPages.add(page);
+    const raw = await request(DATA_API, `/positions/${encodeURIComponent(positionAddress)}/historical`, { page, limit: 100 });
+    const pageEvents = normalizeArray(raw, ['events']);
+    events.push(...pageEvents);
+    const nextPage = nextHistoryPage(raw, page, pageEvents.length);
+    if (nextPage === null || !pageEvents.length) break;
+    page = nextPage;
+    await sleep(100);
+  }
+
   cacheSet(cacheKey, events, 10 * 60 * 1000);
   return events;
 }
@@ -424,7 +501,7 @@ function summarizePositionHistory(events) {
   const createdMs = times.length ? Math.min(...times) : null;
   const depositedUsd = adds.reduce((sum, event) => sum + eventUsd(event), 0);
   const withdrawnUsd = removes.reduce((sum, event) => sum + eventUsd(event), 0);
-  const feesUsd = feeClaims.reduce((sum, event) => sum + eventUsd(event), 0);
+  const feesUsd = feeClaims.reduce((sum, event) => sum + eventFeeUsd(event), 0);
   return {
     created_at: createdMs ? new Date(createdMs).toISOString() : null,
     deposited_usd: depositedUsd,

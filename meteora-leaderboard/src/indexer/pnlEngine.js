@@ -162,6 +162,10 @@ const TOTAL_FEE_USD_KEYS = [
   'totalFeesUsd',
   'total_fee_usd',
   'totalFeeUsd',
+  'lp_fee_usd',
+  'lpFeeUsd',
+  'trading_fee_usd',
+  'tradingFeeUsd',
 ];
 
 const CLAIMED_FEE_USD_KEYS = [
@@ -173,6 +177,8 @@ const CLAIMED_FEE_USD_KEYS = [
   'totalClaimedFees',
   'total_claimed_fees_usd',
   'fees_usd',
+  'fee_usd',
+  'feeUsd',
 ];
 
 const UNCLAIMED_FEE_USD_KEYS = [
@@ -190,6 +196,9 @@ const CLAIMED_FEE_X_KEYS = [
   'claimed_fees_x_amount',
   'claimedFeesXAmount',
   'total_claimed_fee_x_amount',
+  'fee_amount_x',
+  'feeAmountX',
+  'feeX',
   'fee_x_amount',
   'feeXAmount',
   'fees_x_amount',
@@ -205,6 +214,9 @@ const CLAIMED_FEE_Y_KEYS = [
   'claimed_fees_y_amount',
   'claimedFeesYAmount',
   'total_claimed_fee_y_amount',
+  'fee_amount_y',
+  'feeAmountY',
+  'feeY',
   'fee_y_amount',
   'feeYAmount',
   'fees_y_amount',

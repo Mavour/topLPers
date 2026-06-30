@@ -2,6 +2,7 @@ import { config } from '../config.js';
 import { get as cacheGet, set as cacheSet } from '../cache/memCache.js';
 
 const BASE58_ALPHABET = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+const MAX_HISTORY_PAGES = Number.parseInt(process.env.MAX_POSITION_HISTORY_PAGES, 10) || 50;
 
 const sleep = (ms) => new Promise((resolve) => {
   setTimeout(resolve, ms);
@@ -75,7 +76,7 @@ function base58Encode(bytes) {
 }
 
 async function request(path, params = {}) {
-  const url = new URL(`${config.apiBase}${path}`);
+  const url = new URL(`${config.meteoraApiBase}${path}`);
   for (const [key, value] of Object.entries(params)) {
     if (value !== undefined && value !== null && value !== '') {
       url.searchParams.set(key, String(value));
@@ -147,6 +148,61 @@ async function rpcRequest(method, params) {
   }
 }
 
+function nestedFirst(row, keys) {
+  for (const key of keys) {
+    if (key.includes('.')) {
+      const value = key.split('.').reduce((acc, part) => acc?.[part], row);
+      if (value !== undefined && value !== null && value !== '') {
+        return value;
+      }
+    } else {
+      const value = firstDefined(row, [key]);
+      if (value !== null) {
+        return value;
+      }
+    }
+  }
+  return null;
+}
+
+function eventType(event) {
+  return String(event?.eventType || event?.type || '').toLowerCase();
+}
+
+function isAddEvent(event) {
+  return ['add', 'deposit', 'add_liquidity', 'increase_liquidity'].includes(eventType(event));
+}
+
+function isRemoveEvent(event) {
+  return ['remove', 'withdraw', 'remove_liquidity', 'decrease_liquidity', 'close_position'].includes(eventType(event));
+}
+
+function isFeeEvent(event) {
+  const type = eventType(event);
+  return ['claim_fee', 'claim_fees', 'fee_claim', 'fee_claimed', 'claim', 'swap'].includes(type)
+    || (type.includes('fee') && type.includes('claim'));
+}
+
+function nextHistoryPage(raw, page, eventCount) {
+  const explicit = nestedFirst(raw, ['nextPage', 'next_page', 'pagination.nextPage', 'pagination.next_page']);
+  const parsed = Number.parseInt(explicit, 10);
+  if (Number.isFinite(parsed) && parsed !== page) return parsed;
+
+  const hasMore = nestedFirst(raw, [
+    'hasNextPage',
+    'has_next_page',
+    'hasMore',
+    'has_more',
+    'pagination.hasNextPage',
+    'pagination.has_next_page',
+    'pagination.hasMore',
+    'pagination.has_more',
+  ]);
+  if (hasMore === true || hasMore === 'true') return page + 1;
+
+  return eventCount > 0 && eventCount >= 100 ? page + 1 : null;
+}
+
 async function cached(key, ttlMs, loader) {
   const existing = cacheGet(key);
   if (existing !== null) {
@@ -213,8 +269,20 @@ async function getWalletPoolPositionsFromRpc(poolAddress, walletAddress, limit) 
 
 async function getPositionHistory(positionAddress) {
   return cached(`history:${positionAddress}`, 10 * 60_000, async () => {
-    const raw = await request(`/positions/${encodeURIComponent(positionAddress)}/historical`);
-    return normalizeArray(raw, ['events']);
+    const events = [];
+    let page = 0;
+    const seenPages = new Set();
+    while (!seenPages.has(page) && seenPages.size < MAX_HISTORY_PAGES) {
+      seenPages.add(page);
+      const raw = await request(`/positions/${encodeURIComponent(positionAddress)}/historical`, { page, limit: 100 });
+      const pageEvents = normalizeArray(raw, ['events']);
+      events.push(...pageEvents);
+      const nextPage = nextHistoryPage(raw, page, pageEvents.length);
+      if (nextPage === null || !pageEvents.length) break;
+      page = nextPage;
+      await sleep(100);
+    }
+    return events;
   });
 }
 
@@ -258,7 +326,7 @@ export async function getPositionDeposits(positionAddress) {
 
   return cached(`deposits:${positionAddress}`, 10 * 60_000, async () => {
     const events = await getPositionHistory(positionAddress);
-    return events.filter((event) => String(event.eventType || event.type || '').toLowerCase() === 'add');
+    return events.filter(isAddEvent);
   });
 }
 
@@ -269,7 +337,7 @@ export async function getPositionWithdraws(positionAddress) {
 
   return cached(`withdraws:${positionAddress}`, 10 * 60_000, async () => {
     const events = await getPositionHistory(positionAddress);
-    return events.filter((event) => String(event.eventType || event.type || '').toLowerCase() === 'remove');
+    return events.filter(isRemoveEvent);
   });
 }
 
@@ -280,7 +348,7 @@ export async function getPositionFeeClaims(positionAddress) {
 
   return cached(`fee-claims:${positionAddress}`, 10 * 60_000, async () => {
     const events = await getPositionHistory(positionAddress);
-    return events.filter((event) => String(event.eventType || event.type || '').toLowerCase() === 'claim_fee');
+    return events.filter(isFeeEvent);
   });
 }
 
