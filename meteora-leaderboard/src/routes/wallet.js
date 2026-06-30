@@ -1,5 +1,7 @@
 import express from 'express';
+import pLimit from 'p-limit';
 import { getPool, getPoolPositions, getWalletClosedPositions, getWalletOpenPositions, isValidAddress } from '../api/meteora.js';
+import { config } from '../config.js';
 import { getPoolByAddress, getWalletPoolBreakdown, getWalletPositions, getWalletSummary } from '../db/queries.js';
 import { normalizeClosedPosition, normalizeOpenPosition } from '../indexer/pnlEngine.js';
 import { getPrices, getSolPrice } from '../api/price.js';
@@ -279,8 +281,9 @@ router.get('/:address', async (req, res) => {
       }
     }
 
+    const liveLimit = pLimit(config.livePositionConcurrency);
     const liveOpenPositions = await Promise.all(uniqueByPositionAddress([...rawOpenPositions, ...rpcOpenPositions])
-      .map(enrichOpenPosition));
+      .map((position) => liveLimit(() => enrichOpenPosition(position))));
     const openPositions = liveOpenPositions.map((position) => normalizeOpenPosition(position, solPrice));
     const closedPositions = rawClosedPositions.map((position) => normalizeClosedPosition({
       ...pricedMeta(poolAddressOf(position)),

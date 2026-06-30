@@ -119,6 +119,7 @@ function uniqueByPositionAddress(positions) {
 
 export async function computeWalletPnls(wallets, solPrice, onProgress, fallbackOpenPositions = new Map(), onWalletPnl = null, poolByAddress = new Map()) {
   const limit = pLimit(config.concurrency);
+  const liveLimit = pLimit(config.livePositionConcurrency);
   const results = new Map();
   let done = 0;
 
@@ -134,7 +135,7 @@ export async function computeWalletPnls(wallets, solPrice, onProgress, fallbackO
       });
       const fallbackOpen = fallbackOpenPositions.get(wallet) || [];
       const liveOpen = await Promise.all(uniqueByPositionAddress([...open, ...fallbackOpen])
-        .map((position) => withLiveOpenValue(position, poolByAddress)));
+        .map((position) => liveLimit(() => withLiveOpenValue(position, poolByAddress))));
       const normalizedOpen = liveOpen.map((position) => normalizeOpenPosition(position, solPrice));
       const summary = aggregateWalletPnl(wallet, normalizedClosed, normalizedOpen);
       if (summary.positionCount > 0) {
