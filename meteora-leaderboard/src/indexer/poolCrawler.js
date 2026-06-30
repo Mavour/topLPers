@@ -9,7 +9,8 @@ import {
   numberFrom,
   tokenMint,
 } from '../api/meteora.js';
-import { getSolPrice } from '../api/price.js';
+import { getPrices, getSolPrice } from '../api/price.js';
+import { getLivePositionState } from '../core/livePositionValue.js';
 import { aggregateWalletPnl, normalizeClosedPosition, normalizeOpenPosition } from './pnlEngine.js';
 
 function poolAddress(pool) {
@@ -42,6 +43,14 @@ export function normalizePool(pool) {
     fee_rate: numberFrom(firstDefined(pool, ['base_fee_percentage', 'fee_rate', 'feeRate', 'pool_config.base_fee_pct']), 0),
     tvl_usd: numberFrom(firstDefined(pool, ['current_tvl', 'tvl', 'tvlUsd', 'liquidity']), 0),
     volume_24h_usd: poolVolume24h(pool),
+  };
+}
+
+function withPoolPrices(pool, prices) {
+  return {
+    ...pool,
+    token_x_price: prices.get(pool.token_x_mint) || 0,
+    token_y_price: prices.get(pool.token_y_mint) || 0,
   };
 }
 
@@ -81,7 +90,34 @@ export async function collectWalletsFromPools(pools) {
   return { walletPoolMap, walletOpenPositions };
 }
 
-export async function computeWalletPnls(wallets, solPrice, onProgress, fallbackOpenPositions = new Map(), onWalletPnl = null) {
+async function withLiveOpenValue(position, poolByAddress) {
+  const poolAddress = firstDefined(position, ['pool_address', 'pair_address', 'lb_pair']);
+  const positionAddress = firstDefined(position, ['position_address', 'position', 'pubkey', 'address']);
+  const poolInfo = poolByAddress.get(poolAddress) || position;
+  if (!poolAddress || !positionAddress) return { ...position, ...poolInfo };
+
+  try {
+    const live = await getLivePositionState(positionAddress, poolAddress, poolInfo);
+    return { ...poolInfo, ...position, ...live, position_address: positionAddress, pool_address: poolAddress };
+  } catch (error) {
+    console.warn(`  [live] failed ${positionAddress.slice(0, 8)}: ${error.message}`);
+    return { ...poolInfo, ...position, position_address: positionAddress, pool_address: poolAddress };
+  }
+}
+
+function uniqueByPositionAddress(positions) {
+  const seen = new Set();
+  const unique = [];
+  for (const position of positions) {
+    const key = firstDefined(position, ['position_address', 'position', 'pubkey', 'address']);
+    if (key && seen.has(key)) continue;
+    if (key) seen.add(key);
+    unique.push(position);
+  }
+  return unique;
+}
+
+export async function computeWalletPnls(wallets, solPrice, onProgress, fallbackOpenPositions = new Map(), onWalletPnl = null, poolByAddress = new Map()) {
   const limit = pLimit(config.concurrency);
   const results = new Map();
   let done = 0;
@@ -92,9 +128,14 @@ export async function computeWalletPnls(wallets, solPrice, onProgress, fallbackO
         getWalletClosedPositions(wallet).catch(() => []),
         getWalletOpenPositions(wallet).catch(() => []),
       ]);
-      const normalizedClosed = closed.map((position) => normalizeClosedPosition(position, solPrice));
+      const normalizedClosed = closed.map((position) => {
+        const poolInfo = poolByAddress.get(position.pool_address || position.pair_address || position.lb_pair) || {};
+        return normalizeClosedPosition({ ...poolInfo, ...position }, solPrice);
+      });
       const fallbackOpen = fallbackOpenPositions.get(wallet) || [];
-      const normalizedOpen = [...open, ...fallbackOpen].map((position) => normalizeOpenPosition(position, solPrice));
+      const liveOpen = await Promise.all(uniqueByPositionAddress([...open, ...fallbackOpen])
+        .map((position) => withLiveOpenValue(position, poolByAddress)));
+      const normalizedOpen = liveOpen.map((position) => normalizeOpenPosition(position, solPrice));
       const summary = aggregateWalletPnl(wallet, normalizedClosed, normalizedOpen);
       if (summary.positionCount > 0) {
         results.set(wallet, summary);
@@ -114,7 +155,11 @@ export async function computeWalletPnls(wallets, solPrice, onProgress, fallbackO
 export async function crawlAll(onProgress, hooks = {}) {
   try {
     console.log('[crawler] fetching active pools...');
-    const pools = (await getActivePools()).map(normalizePool).filter((pool) => pool.address);
+    const rawPools = (await getActivePools()).map(normalizePool).filter((pool) => pool.address);
+    const priceMints = rawPools.flatMap((pool) => [pool.token_x_mint, pool.token_y_mint]).filter(Boolean);
+    const tokenPrices = await getPrices(priceMints);
+    const pools = rawPools.map((pool) => withPoolPrices(pool, tokenPrices));
+    const poolByAddress = new Map(pools.map((pool) => [pool.address, pool]));
     if (!pools.length) throw new Error('Meteora returned no indexable pools after normalization/filtering');
     console.log(`[crawler] got ${pools.length} pools`);
     if (hooks.onPools) hooks.onPools(pools);
@@ -129,7 +174,7 @@ export async function crawlAll(onProgress, hooks = {}) {
 
     const walletPnls = await computeWalletPnls(uniqueWallets, solPrice, (done, total) => {
       if (onProgress) onProgress({ phase: 'computing_pnl', done, total, walletsFound: done });
-    }, walletOpenPositions, hooks.onWalletPnl);
+    }, walletOpenPositions, hooks.onWalletPnl, poolByAddress);
 
     return {
       pools,

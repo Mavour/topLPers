@@ -10,6 +10,8 @@
     "reset:index": "node scripts/reset-index-data.js"
   },
   "dependencies": {
+    "@meteora-ag/dlmm": "^1.9.10",
+    "@solana/web3.js": "^1.98.4",
     "better-sqlite3": "^12.11.1",
     "dotenv": "^16.4.5",
     "express": "^4.18.3",

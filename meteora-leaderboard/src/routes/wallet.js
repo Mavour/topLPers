@@ -2,7 +2,8 @@ import express from 'express';
 import { getPool, getPoolPositions, getWalletClosedPositions, getWalletOpenPositions, isValidAddress } from '../api/meteora.js';
 import { getPoolByAddress, getWalletPoolBreakdown, getWalletPositions, getWalletSummary } from '../db/queries.js';
 import { normalizeClosedPosition, normalizeOpenPosition } from '../indexer/pnlEngine.js';
-import { getSolPrice } from '../api/price.js';
+import { getPrices, getSolPrice } from '../api/price.js';
+import { getLivePositionState } from '../core/livePositionValue.js';
 
 const router = express.Router();
 
@@ -61,8 +62,30 @@ function normalizePoolMeta(pool) {
     name: displayPoolName({}, pool),
     token_x_symbol: firstDefined(pool, ['token_x_symbol', 'mint_x_symbol', 'tokenX.symbol', 'token_x.symbol']) || '',
     token_y_symbol: firstDefined(pool, ['token_y_symbol', 'mint_y_symbol', 'tokenY.symbol', 'token_y.symbol']) || '',
+    token_x_mint: firstDefined(pool, ['token_x_mint', 'mint_x', 'tokenX.address', 'token_x.address']) || '',
+    token_y_mint: firstDefined(pool, ['token_y_mint', 'mint_y', 'tokenY.address', 'token_y.address']) || '',
     bin_step: Number(firstDefined(pool, ['bin_step', 'binStep', 'pool_config.bin_step']) || 0),
   };
+}
+
+function poolAddressOf(position) {
+  return firstDefined(position, ['pool_address', 'pair_address', 'lb_pair']);
+}
+
+function positionAddressOf(position) {
+  return firstDefined(position, ['position_address', 'position', 'pubkey', 'address']);
+}
+
+function uniqueByPositionAddress(positions) {
+  const seen = new Set();
+  const unique = [];
+  for (const position of positions) {
+    const key = positionAddressOf(position);
+    if (key && seen.has(key)) continue;
+    if (key) seen.add(key);
+    unique.push(position);
+  }
+  return unique;
 }
 
 function rangeWidthPct(position, pool) {
@@ -196,18 +219,13 @@ router.get('/:address', async (req, res) => {
             fees_usd: 0,
           }));
       }))).flat();
-    const openPositions = [...rawOpenPositions, ...rpcOpenPositions].map((position) => normalizeOpenPosition(position, solPrice));
-    const closedPositions = rawClosedPositions.map((position) => normalizeClosedPosition(position, solPrice));
-    if (!summary && openPositions.length === 0 && closedPositions.length === 0) {
-      return res.status(404).json({ error: 'Wallet tidak ditemukan atau belum pernah LP di Meteora' });
-    }
-
     const poolMetaCache = new Map();
     const poolAddresses = new Set([
       ...poolBreakdown.map((row) => row.pool_address),
       ...indexedPositions.map((position) => position.poolAddress),
-      ...openPositions.map((position) => position.poolAddress),
-      ...closedPositions.map((position) => position.poolAddress),
+      ...rawOpenPositions.map(poolAddressOf),
+      ...rpcOpenPositions.map(poolAddressOf),
+      ...rawClosedPositions.map(poolAddressOf),
     ].filter(Boolean));
 
     await Promise.all(Array.from(poolAddresses).map(async (poolAddress) => {
@@ -231,6 +249,45 @@ router.get('/:address', async (req, res) => {
     function poolMeta(poolAddress) {
       if (!poolAddress) return null;
       return poolMetaCache.get(poolAddress) || null;
+    }
+
+    const tokenPrices = await getPrices(Array.from(poolMetaCache.values()).flatMap((meta) => [
+      meta?.token_x_mint,
+      meta?.token_y_mint,
+    ]).filter(Boolean));
+
+    function pricedMeta(poolAddress) {
+      const meta = poolMeta(poolAddress);
+      if (!meta) return {};
+      return {
+        ...meta,
+        token_x_price: tokenPrices.get(meta.token_x_mint) || 0,
+        token_y_price: tokenPrices.get(meta.token_y_mint) || 0,
+      };
+    }
+
+    async function enrichOpenPosition(position) {
+      const poolAddress = poolAddressOf(position);
+      const positionAddress = positionAddressOf(position);
+      const meta = pricedMeta(poolAddress);
+      if (!poolAddress || !positionAddress) return { ...meta, ...position };
+      try {
+        const live = await getLivePositionState(positionAddress, poolAddress, meta);
+        return { ...meta, ...position, ...live, position_address: positionAddress, pool_address: poolAddress };
+      } catch {
+        return { ...meta, ...position, position_address: positionAddress, pool_address: poolAddress };
+      }
+    }
+
+    const liveOpenPositions = await Promise.all(uniqueByPositionAddress([...rawOpenPositions, ...rpcOpenPositions])
+      .map(enrichOpenPosition));
+    const openPositions = liveOpenPositions.map((position) => normalizeOpenPosition(position, solPrice));
+    const closedPositions = rawClosedPositions.map((position) => normalizeClosedPosition({
+      ...pricedMeta(poolAddressOf(position)),
+      ...position,
+    }, solPrice));
+    if (!summary && openPositions.length === 0 && closedPositions.length === 0) {
+      return res.status(404).json({ error: 'Wallet tidak ditemukan atau belum pernah LP di Meteora' });
     }
 
     const pools = new Map(poolBreakdown.map((row) => {
