@@ -194,8 +194,7 @@
           <button type="button" data-mode="losers">Top losers</button>
         </div>
         <div class="segmented">
-          <button type="button" data-period="1">1d</button>
-          <button class="active" type="button" data-period="7">7d</button>
+          <button class="active" type="button" data-period="7">Latest indexed</button>
         </div>
         <button id="refreshButton" type="button">Refresh</button>
       </section>
@@ -472,7 +471,7 @@
           const running = state.status?.indexer?.isRunning;
           el.emptyState.innerHTML = running
             ? `<div class="spinner"></div><h3>Initial indexing in progress</h3><p>Fetching data from ${state.status.indexer.progress.poolsDone}/${state.status.indexer.progress.poolsTotal} pools...</p><p>This may take 10-30 minutes on first run.</p>`
-            : `<h3>No ranked wallets for ${state.period}d</h3><p>Try 7d, switch winners/losers, clear the pool filter, or run a fresh index.</p>`;
+            : '<h3>No ranked wallets</h3><p>Switch winners/losers, clear the pool filter, or run a fresh index.</p>';
         }
       }
 
