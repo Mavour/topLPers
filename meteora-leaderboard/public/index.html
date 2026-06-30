@@ -315,6 +315,14 @@
         return `${sign}${Math.abs(value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SOL`;
       }
 
+      function formatWinRate(row) {
+        const rate = Number(row.winRatePct);
+        if (!Number.isFinite(rate)) return 'Win rate n/a';
+        const wins = Number(row.winningPositionCount) || 0;
+        const total = Number(row.positionCount) || 0;
+        return `Win rate ${rate.toFixed(0)}% (${wins}/${total})`;
+      }
+
       function shortWallet(addr) {
         return addr && addr.length > 12 ? `${addr.slice(0, 6)}...${addr.slice(-4)}` : addr || '-';
       }
@@ -443,7 +451,7 @@
                   <span class="wallet-short" data-full="${row.wallet}">${shortWallet(row.wallet)}</span>
                   <button class="btn-copy" data-addr="${row.wallet}" title="Copy address" type="button">${copyIcon}</button>
                 </div>
-                <small>${row.wallet}</small>
+                <small>${formatWinRate(row)}</small>
               </div>
             </td>
             <td class="${pnlClass}">${formatSol(row.pnlSol)}</td>

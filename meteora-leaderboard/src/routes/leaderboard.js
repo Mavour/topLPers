@@ -17,6 +17,10 @@ function rankRows(rows, offset) {
     depositedUsd: row.deposited_usd,
     withdrawnUsd: row.withdrawn_usd,
     positionCount: row.position_count,
+    winningPositionCount: row.winning_position_count,
+    winRatePct: row.position_count > 0 && row.winning_position_count !== null
+      ? (row.winning_position_count / row.position_count) * 100
+      : null,
     poolCount: row.pool_count || 1,
     bestPoolName: row.best_pool_name || row.pool_name || null,
     bestPoolAddress: row.best_pool_address || row.pool_address || null,

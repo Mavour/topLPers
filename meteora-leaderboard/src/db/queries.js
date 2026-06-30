@@ -213,6 +213,7 @@ export function getLeaderboard({ mode = 'winners', limit = 50, offset = 0, pool 
       SUM(deposited_usd) AS deposited_usd,
       SUM(withdrawn_usd) AS withdrawn_usd,
       COUNT(*) AS position_count,
+      SUM(CASE WHEN pnl_usd > 0 THEN 1 ELSE 0 END) AS winning_position_count,
       MAX(last_updated) AS last_updated
     FROM wallet_positions
     WHERE (
@@ -235,6 +236,7 @@ export function getLeaderboard({ mode = 'winners', limit = 50, offset = 0, pool 
       deposited_usd: 0,
       withdrawn_usd: 0,
       position_count: 0,
+      winning_position_count: 0,
       pool_count: 0,
       best_pool_name: row.pool_name,
       best_pool_address: row.pool_address,
@@ -247,6 +249,7 @@ export function getLeaderboard({ mode = 'winners', limit = 50, offset = 0, pool 
     existing.deposited_usd += row.deposited_usd || 0;
     existing.withdrawn_usd += row.withdrawn_usd || 0;
     existing.position_count += row.position_count || 0;
+    existing.winning_position_count += row.winning_position_count || 0;
     existing.pool_count += 1;
     existing.last_updated = Math.max(existing.last_updated || 0, row.last_updated || 0);
     if ((row.pnl_usd || 0) > existing.best_pool_pnl_usd) {
@@ -274,6 +277,7 @@ export function getLeaderboard({ mode = 'winners', limit = 50, offset = 0, pool 
         deposited_usd,
         withdrawn_usd,
         position_count,
+        NULL AS winning_position_count,
         last_updated
       FROM wallet_pool_pnl
       WHERE (? IS NULL OR pool_address = ?)
