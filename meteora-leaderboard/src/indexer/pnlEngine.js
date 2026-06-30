@@ -185,6 +185,16 @@ function durationSeconds(start, end) {
   return created > 0 && closed > created ? closed - created : null;
 }
 
+function poolName(pos) {
+  return firstDefined(pos, [
+    'pool_name',
+    'poolName',
+    'pair_name',
+    'pool.name',
+    'pool_info.name',
+  ]);
+}
+
 export function normalizeClosedPosition(pos, solPriceUsd = 150) {
   const poolInfo = pos.pool || pos.pool_info || pos;
   const feesUsd = usdFromSources(pos, poolInfo, solPriceUsd, [
@@ -238,6 +248,7 @@ export function normalizeClosedPosition(pos, solPriceUsd = 150) {
   return {
     positionAddress: pos.position_address || pos.address || '',
     poolAddress: pos.pool_address || pos.pair_address || '',
+    poolName: poolName(pos),
     pnlUsd,
     pnlSol: solPriceUsd > 0 ? pnlUsd / solPriceUsd : 0,
     feesUsd,
@@ -311,6 +322,7 @@ export function normalizeOpenPosition(pos, solPriceUsd = 150) {
   return {
     positionAddress: pos.position_address || pos.address || '',
     poolAddress: pos.pool_address || pos.pair_address || pos.lb_pair || '',
+    poolName: poolName(pos),
     pnlUsd,
     pnlSol: solPriceUsd > 0 ? pnlUsd / solPriceUsd : 0,
     feesUsd,
@@ -349,7 +361,7 @@ export function aggregateWalletPnl(wallet, closedPositions, openPositions) {
     if (!byPool.has(key)) {
       byPool.set(key, {
         poolAddress: key,
-        poolName: key,
+        poolName: pos.poolName || key,
         pnlUsd: 0,
         pnlSol: 0,
         feesUsd: 0,
@@ -361,6 +373,7 @@ export function aggregateWalletPnl(wallet, closedPositions, openPositions) {
       });
     }
     const entry = byPool.get(key);
+    if (pos.poolName && entry.poolName === key) entry.poolName = pos.poolName;
     entry.pnlUsd += pos.pnlUsd;
     entry.pnlSol += pos.pnlSol;
     entry.feesUsd += pos.feesUsd;

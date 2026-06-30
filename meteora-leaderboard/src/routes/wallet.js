@@ -1,5 +1,5 @@
 import express from 'express';
-import { getPoolPositions, getWalletClosedPositions, getWalletOpenPositions, isValidAddress } from '../api/meteora.js';
+import { getPool, getPoolPositions, getWalletClosedPositions, getWalletOpenPositions, isValidAddress } from '../api/meteora.js';
 import { getPoolByAddress, getWalletPoolBreakdown, getWalletPositions, getWalletSummary } from '../db/queries.js';
 import { normalizeClosedPosition, normalizeOpenPosition } from '../indexer/pnlEngine.js';
 import { getSolPrice } from '../api/price.js';
@@ -21,7 +21,10 @@ function flexibleIso(value) {
 
 function firstDefined(row, keys) {
   for (const key of keys) {
-    if (row?.[key] !== undefined && row?.[key] !== null && row?.[key] !== '') return row[key];
+    if (key.includes('.')) {
+      const value = key.split('.').reduce((acc, part) => acc?.[part], row);
+      if (value !== undefined && value !== null && value !== '') return value;
+    } else if (row?.[key] !== undefined && row?.[key] !== null && row?.[key] !== '') return row[key];
   }
   return null;
 }
@@ -43,11 +46,23 @@ function looksLikeAddress(value) {
 function displayPoolName(row, meta = null) {
   const stored = row?.pool_name || row?.poolName;
   if (stored && !looksLikeAddress(stored)) return stored;
-  if (meta?.name && !looksLikeAddress(meta.name)) return meta.name;
-  const x = meta?.token_x_symbol || '';
-  const y = meta?.token_y_symbol || '';
+  const metaName = firstDefined(meta, ['name', 'pool_name', 'symbol', 'pair_name']);
+  if (metaName && !looksLikeAddress(metaName)) return metaName;
+  const x = firstDefined(meta, ['token_x_symbol', 'mint_x_symbol', 'tokenX.symbol', 'token_x.symbol']) || '';
+  const y = firstDefined(meta, ['token_y_symbol', 'mint_y_symbol', 'tokenY.symbol', 'token_y.symbol']) || '';
   if (x || y) return `${x || '?'}-${y || '?'}`;
   return stored || row?.pool_address || row?.poolAddress || 'Unknown pool';
+}
+
+function normalizePoolMeta(pool) {
+  if (!pool) return null;
+  return {
+    ...pool,
+    name: displayPoolName({}, pool),
+    token_x_symbol: firstDefined(pool, ['token_x_symbol', 'mint_x_symbol', 'tokenX.symbol', 'token_x.symbol']) || '',
+    token_y_symbol: firstDefined(pool, ['token_y_symbol', 'mint_y_symbol', 'tokenY.symbol', 'token_y.symbol']) || '',
+    bin_step: Number(firstDefined(pool, ['bin_step', 'binStep', 'pool_config.bin_step']) || 0),
+  };
 }
 
 function rangeWidthPct(position, pool) {
@@ -188,10 +203,34 @@ router.get('/:address', async (req, res) => {
     }
 
     const poolMetaCache = new Map();
+    const poolAddresses = new Set([
+      ...poolBreakdown.map((row) => row.pool_address),
+      ...indexedPositions.map((position) => position.poolAddress),
+      ...openPositions.map((position) => position.poolAddress),
+      ...closedPositions.map((position) => position.poolAddress),
+    ].filter(Boolean));
+
+    await Promise.all(Array.from(poolAddresses).map(async (poolAddress) => {
+      const dbMeta = getPoolByAddress(poolAddress);
+      if (dbMeta && !looksLikeAddress(displayPoolName({}, dbMeta))) {
+        poolMetaCache.set(poolAddress, dbMeta);
+        return;
+      }
+
+      if (!isValidAddress(poolAddress)) {
+        poolMetaCache.set(poolAddress, dbMeta || null);
+        return;
+      }
+
+      const liveMeta = await getPool(poolAddress)
+        .then((pool) => normalizePoolMeta(pool?.data || pool))
+        .catch(() => null);
+      poolMetaCache.set(poolAddress, liveMeta || dbMeta || null);
+    }));
+
     function poolMeta(poolAddress) {
       if (!poolAddress) return null;
-      if (!poolMetaCache.has(poolAddress)) poolMetaCache.set(poolAddress, getPoolByAddress(poolAddress));
-      return poolMetaCache.get(poolAddress);
+      return poolMetaCache.get(poolAddress) || null;
     }
 
     const pools = new Map(poolBreakdown.map((row) => {
