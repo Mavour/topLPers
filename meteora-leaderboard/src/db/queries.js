@@ -202,7 +202,15 @@ export function getLeaderboard({ mode = 'winners', limit = 50, offset = 0, pool 
   const days = requestedDays === 1 ? 1 : 7;
   const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
   const poolFilter = pool ? 'AND pool_address = ?' : '';
-  const periodArgs = pool ? [cutoff, cutoff, pool] : [cutoff, cutoff];
+  const useActivityWindow = days === 1;
+  const periodWhere = useActivityWindow
+    ? `AND (
+      (closed_at IS NOT NULL AND closed_at >= ?)
+      OR (created_at IS NOT NULL AND created_at >= ?)
+    )`
+    : '';
+  const periodArgs = useActivityWindow ? [cutoff, cutoff] : [];
+  const queryArgs = pool ? [...periodArgs, pool] : periodArgs;
   const rows = db.prepare(`
     SELECT
       wallet,
@@ -217,13 +225,11 @@ export function getLeaderboard({ mode = 'winners', limit = 50, offset = 0, pool 
       SUM(CASE WHEN pnl_usd >= ${MIN_RANKED_PNL_USD} THEN 1 ELSE 0 END) AS winning_position_count,
       MAX(last_updated) AS last_updated
     FROM wallet_positions
-    WHERE (
-      (closed_at IS NOT NULL AND closed_at >= ?)
-      OR (created_at IS NOT NULL AND created_at >= ?)
-    )
+    WHERE 1 = 1
+    ${periodWhere}
     ${poolFilter}
     GROUP BY wallet, pool_address
-  `).all(...periodArgs);
+  `).all(...queryArgs);
 
   const grouped = new Map();
   const addRows = (sourceRows) => {
@@ -265,7 +271,7 @@ export function getLeaderboard({ mode = 'winners', limit = 50, offset = 0, pool 
   addRows(rows);
 
   let usedStaleFallback = false;
-  let periodSource = 'wallet_positions_activity_window';
+  let periodSource = useActivityWindow ? 'wallet_positions_activity_window' : 'wallet_positions_latest_indexed';
   if (grouped.size === 0) {
     const fallbackRows = db.prepare(`
       SELECT
