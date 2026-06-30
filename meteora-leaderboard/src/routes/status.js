@@ -22,7 +22,7 @@ router.get('/', async (req, res) => {
         isRunning: state.isRunning,
         phase: state.progress.phase,
         progress: state.progress,
-        lastFinished: iso(state.lastFinished),
+        lastFinished: iso(state.lastFinished || stats.lastRun?.finished_at),
         lastError: state.lastError,
       },
       database: {

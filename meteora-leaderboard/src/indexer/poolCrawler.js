@@ -81,7 +81,7 @@ export async function collectWalletsFromPools(pools) {
   return { walletPoolMap, walletOpenPositions };
 }
 
-export async function computeWalletPnls(wallets, solPrice, onProgress, fallbackOpenPositions = new Map()) {
+export async function computeWalletPnls(wallets, solPrice, onProgress, fallbackOpenPositions = new Map(), onWalletPnl = null) {
   const limit = pLimit(config.concurrency);
   const results = new Map();
   let done = 0;
@@ -96,7 +96,10 @@ export async function computeWalletPnls(wallets, solPrice, onProgress, fallbackO
       const fallbackOpen = fallbackOpenPositions.get(wallet) || [];
       const normalizedOpen = [...open, ...fallbackOpen].map((position) => normalizeOpenPosition(position, solPrice));
       const summary = aggregateWalletPnl(wallet, normalizedClosed, normalizedOpen);
-      if (summary.positionCount > 0) results.set(wallet, summary);
+      if (summary.positionCount > 0) {
+        results.set(wallet, summary);
+        if (onWalletPnl) onWalletPnl(wallet, summary);
+      }
     } catch (error) {
       console.warn(`  [wallet] failed ${wallet.slice(0, 8)}: ${error.message}`);
     }
@@ -108,12 +111,13 @@ export async function computeWalletPnls(wallets, solPrice, onProgress, fallbackO
   return results;
 }
 
-export async function crawlAll(onProgress) {
+export async function crawlAll(onProgress, hooks = {}) {
   try {
     console.log('[crawler] fetching active pools...');
     const pools = (await getActivePools()).map(normalizePool).filter((pool) => pool.address);
     if (!pools.length) throw new Error('Meteora returned no indexable pools after normalization/filtering');
     console.log(`[crawler] got ${pools.length} pools`);
+    if (hooks.onPools) hooks.onPools(pools);
 
     console.log('[crawler] collecting wallets from pools...');
     const { walletPoolMap, walletOpenPositions } = await collectWalletsFromPools(pools);
@@ -125,7 +129,7 @@ export async function crawlAll(onProgress) {
 
     const walletPnls = await computeWalletPnls(uniqueWallets, solPrice, (done, total) => {
       if (onProgress) onProgress({ phase: 'computing_pnl', done, total, walletsFound: done });
-    }, walletOpenPositions);
+    }, walletOpenPositions, hooks.onWalletPnl);
 
     return {
       pools,

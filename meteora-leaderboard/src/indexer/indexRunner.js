@@ -37,6 +37,86 @@ function setupJson(position) {
   return JSON.stringify(lines);
 }
 
+function savePools(pools) {
+  for (const pool of pools) {
+    upsertPool({
+      address: pool.address,
+      name: pool.name || `${pool.mint_x_symbol || '?'} / ${pool.mint_y_symbol || '?'}`,
+      token_x_mint: pool.mint_x || pool.token_x_mint || '',
+      token_y_mint: pool.mint_y || pool.token_y_mint || '',
+      token_x_symbol: pool.mint_x_symbol || pool.token_x_symbol || '',
+      token_y_symbol: pool.mint_y_symbol || pool.token_y_symbol || '',
+      bin_step: pool.bin_step || 0,
+      fee_rate: pool.base_fee_percentage || pool.fee_rate || 0,
+      tvl_usd: Number.parseFloat(pool.current_tvl || pool.tvl || pool.tvl_usd || 0) || 0,
+      volume_24h_usd: Number.parseFloat(pool.trade_volume_24h || pool.volume_24h || pool.volume_24h_usd || 0) || 0,
+      last_indexed: Date.now(),
+      position_count: 0,
+    });
+  }
+}
+
+function saveWalletBatch(batch) {
+  if (!batch.length) return;
+  const now = Date.now();
+  batchUpsertWalletPnl(batch.map(([wallet, data]) => ({
+    wallet,
+    pnl_usd: data.pnlUsd,
+    pnl_sol: data.pnlSol,
+    fees_earned_usd: data.feesEarnedUsd,
+    deposited_usd: data.depositedUsd,
+    withdrawn_usd: data.withdrawnUsd,
+    position_count: data.positionCount,
+    pool_count: data.poolCount,
+    last_updated: now,
+  })));
+
+  for (const [wallet, data] of batch) {
+    for (const pool of data.poolBreakdown) {
+      const createdTimes = [...pool.openPositions, ...pool.closedPositions]
+        .map((position) => toMs(position.createdAt))
+        .filter((value) => Number.isFinite(value) && value > 0);
+      upsertWalletPoolPnl({
+        wallet,
+        pool_address: pool.poolAddress,
+        pool_name: pool.poolName || pool.poolAddress.slice(0, 8),
+        pnl_usd: pool.pnlUsd,
+        pnl_sol: pool.pnlSol,
+        fees_earned_usd: pool.feesUsd,
+        deposited_usd: pool.depositedUsd,
+        withdrawn_usd: pool.withdrawnUsd,
+        position_count: pool.positionCount,
+        has_open: pool.openPositions.length > 0 ? 1 : 0,
+        created_at: createdTimes.length ? Math.min(...createdTimes) : null,
+        last_updated: now,
+      });
+
+      for (const position of [...pool.openPositions, ...pool.closedPositions]) {
+        const isOpen = Boolean(position.isActive);
+        upsertWalletPosition({
+          wallet,
+          position_address: position.positionAddress,
+          pool_address: pool.poolAddress,
+          pool_name: pool.poolName || pool.poolAddress.slice(0, 8),
+          status: isOpen ? 'open' : 'closed',
+          pnl_usd: position.pnlUsd,
+          pnl_sol: position.pnlSol,
+          fees_usd: position.feesUsd,
+          deposited_usd: position.depositedUsd,
+          withdrawn_usd: position.withdrawnUsd,
+          current_value_usd: position.currentValueUsd,
+          created_at: toMs(position.createdAt),
+          closed_at: toMs(position.closedAt),
+          duration_seconds: position.durationSeconds,
+          bin_range: position.binRange,
+          setup_json: setupJson(position),
+          last_updated: now,
+        });
+      }
+    }
+  }
+}
+
 export function getIndexState() {
   return indexState;
 }
@@ -53,6 +133,13 @@ export async function runFullIndex() {
 
   const runId = startIndexRun();
   indexState.currentRunId = runId;
+  const pendingWallets = [];
+  let streamedWallets = 0;
+
+  const flushWallets = () => {
+    const batch = pendingWallets.splice(0, pendingWallets.length);
+    saveWalletBatch(batch);
+  };
 
   try {
     indexState.progress.phase = 'crawling';
@@ -65,90 +152,25 @@ export async function runFullIndex() {
         walletsFound: progress.walletsFound || 0,
         positionsProcessed: progress.done || 0,
       };
+    }, {
+      onPools: (pools) => {
+        savePools(pools);
+        indexState.progress.poolsDone = pools.length;
+        indexState.progress.poolsTotal = pools.length;
+      },
+      onWalletPnl: (wallet, summary) => {
+        pendingWallets.push([wallet, summary]);
+        streamedWallets += 1;
+        if (pendingWallets.length >= 25) flushWallets();
+      },
     });
+    flushWallets();
     indexState.progress.poolsDone = result.pools.length;
     indexState.progress.poolsTotal = result.pools.length;
 
     indexState.progress.phase = 'saving';
 
-    for (const pool of result.pools) {
-      upsertPool({
-        address: pool.address,
-        name: pool.name || `${pool.mint_x_symbol || '?'} / ${pool.mint_y_symbol || '?'}`,
-        token_x_mint: pool.mint_x || pool.token_x_mint || '',
-        token_y_mint: pool.mint_y || pool.token_y_mint || '',
-        token_x_symbol: pool.mint_x_symbol || pool.token_x_symbol || '',
-        token_y_symbol: pool.mint_y_symbol || pool.token_y_symbol || '',
-        bin_step: pool.bin_step || 0,
-        fee_rate: pool.base_fee_percentage || pool.fee_rate || 0,
-        tvl_usd: Number.parseFloat(pool.current_tvl || pool.tvl || pool.tvl_usd || 0) || 0,
-        volume_24h_usd: Number.parseFloat(pool.trade_volume_24h || pool.volume_24h || pool.volume_24h_usd || 0) || 0,
-        last_indexed: Date.now(),
-        position_count: 0,
-      });
-    }
-
-    const walletArray = Array.from(result.walletPnls.entries());
-    const batchSize = 500;
-    for (let index = 0; index < walletArray.length; index += batchSize) {
-      const batch = walletArray.slice(index, index + batchSize);
-      batchUpsertWalletPnl(batch.map(([wallet, data]) => ({
-        wallet,
-        pnl_usd: data.pnlUsd,
-        pnl_sol: data.pnlSol,
-        fees_earned_usd: data.feesEarnedUsd,
-        deposited_usd: data.depositedUsd,
-        withdrawn_usd: data.withdrawnUsd,
-        position_count: data.positionCount,
-        pool_count: data.poolCount,
-        last_updated: Date.now(),
-      })));
-
-      for (const [wallet, data] of batch) {
-        for (const pool of data.poolBreakdown) {
-          const createdTimes = [...pool.openPositions, ...pool.closedPositions]
-            .map((position) => toMs(position.createdAt))
-            .filter((value) => Number.isFinite(value) && value > 0);
-          upsertWalletPoolPnl({
-            wallet,
-            pool_address: pool.poolAddress,
-            pool_name: pool.poolName || pool.poolAddress.slice(0, 8),
-            pnl_usd: pool.pnlUsd,
-            pnl_sol: pool.pnlSol,
-            fees_earned_usd: pool.feesUsd,
-            deposited_usd: pool.depositedUsd,
-            withdrawn_usd: pool.withdrawnUsd,
-            position_count: pool.positionCount,
-            has_open: pool.openPositions.length > 0 ? 1 : 0,
-            created_at: createdTimes.length ? Math.min(...createdTimes) : null,
-            last_updated: Date.now(),
-          });
-
-          for (const position of [...pool.openPositions, ...pool.closedPositions]) {
-            const isOpen = Boolean(position.isActive);
-            upsertWalletPosition({
-              wallet,
-              position_address: position.positionAddress,
-              pool_address: pool.poolAddress,
-              pool_name: pool.poolName || pool.poolAddress.slice(0, 8),
-              status: isOpen ? 'open' : 'closed',
-              pnl_usd: position.pnlUsd,
-              pnl_sol: position.pnlSol,
-              fees_usd: position.feesUsd,
-              deposited_usd: position.depositedUsd,
-              withdrawn_usd: position.withdrawnUsd,
-              current_value_usd: position.currentValueUsd,
-              created_at: toMs(position.createdAt),
-              closed_at: toMs(position.closedAt),
-              duration_seconds: position.durationSeconds,
-              bin_range: position.binRange,
-              setup_json: setupJson(position),
-              last_updated: Date.now(),
-            });
-          }
-        }
-      }
-    }
+    if (streamedWallets === 0) saveWalletBatch(Array.from(result.walletPnls.entries()));
 
     finishIndexRun(runId, {
       pools_indexed: result.pools.length,

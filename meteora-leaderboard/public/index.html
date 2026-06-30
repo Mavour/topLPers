@@ -487,6 +487,9 @@
           } else if (status.lastError) {
             el.statusBadge.className = 'status-pill err';
             el.statusBadge.textContent = 'Last index failed';
+          } else if (!status.lastFinished) {
+            el.statusBadge.className = 'status-pill warn';
+            el.statusBadge.textContent = state.status.database.walletCount > 0 ? 'Partial index data' : 'No completed index';
           } else {
             el.statusBadge.className = 'status-pill ok';
             el.statusBadge.textContent = `Updated ${timeAgo(status.lastFinished)}`;
