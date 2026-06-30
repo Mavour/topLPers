@@ -345,6 +345,7 @@ export function getStats() {
 }
 
 export const resetIndexedData = db.transaction(() => {
+  db.prepare('DELETE FROM pools').run();
   db.prepare('DELETE FROM wallet_pnl').run();
   db.prepare('DELETE FROM wallet_pool_pnl').run();
   db.prepare('DELETE FROM wallet_positions').run();

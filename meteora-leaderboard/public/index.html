@@ -378,15 +378,24 @@
         Object.entries(params).forEach(([key, value]) => {
           if (value !== undefined && value !== null && value !== '') url.searchParams.set(key, value);
         });
-        const response = await fetch(url);
-        const json = await response.json();
-        if (!response.ok) throw new Error(json.error || `HTTP ${response.status}`);
-        return json;
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 20_000);
+        try {
+          const response = await fetch(url, { signal: controller.signal });
+          const json = await response.json();
+          if (!response.ok) throw new Error(json.error || `HTTP ${response.status}`);
+          return json;
+        } catch (error) {
+          if (error.name === 'AbortError') throw new Error(`Timeout loading ${path}`);
+          throw error;
+        } finally {
+          clearTimeout(timer);
+        }
       }
 
-      function setError(message) {
+      function setStatus(message, isError = false) {
         el.status.textContent = message || '';
-        el.status.classList.toggle('error', Boolean(message));
+        el.status.classList.toggle('error', isError);
       }
 
       function renderStats(result) {
@@ -444,7 +453,7 @@
 
       async function fetchLeaderboard() {
         state.isLoading = true;
-        setError('Loading leaderboard...');
+        setStatus('Loading leaderboard...');
         try {
           const result = await api('/api/leaderboard', {
             mode: state.mode,
@@ -457,9 +466,9 @@
           renderStats(result);
           renderLeaderboard(result);
           const fallback = result.meta?.usedStaleFallback ? ' Showing latest cached data while current period/index catches up.' : '';
-          setError(`Showing ${result.rankings.length}/${result.total} wallets ${state.poolFilter ? 'for selected pool' : 'across all indexed pools'}.${fallback}`);
+          setStatus(`Showing ${result.rankings.length}/${result.total} wallets ${state.poolFilter ? 'for selected pool' : 'across all indexed pools'}.${fallback}`);
         } catch (error) {
-          setError(error.message);
+          setStatus(error.message, true);
         } finally {
           state.isLoading = false;
         }

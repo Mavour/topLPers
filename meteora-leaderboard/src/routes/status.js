@@ -13,7 +13,10 @@ router.get('/', async (req, res) => {
   try {
     const state = getIndexState();
     const stats = getStats();
-    const solPrice = await getSolPrice();
+    const solPrice = await Promise.race([
+      getSolPrice(),
+      new Promise((resolve) => setTimeout(() => resolve(null), 2500)),
+    ]);
     res.json({
       indexer: {
         isRunning: state.isRunning,
