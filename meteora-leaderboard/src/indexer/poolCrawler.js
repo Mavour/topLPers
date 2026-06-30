@@ -109,28 +109,34 @@ export async function computeWalletPnls(wallets, solPrice, onProgress, fallbackO
 }
 
 export async function crawlAll(onProgress) {
-  console.log('[crawler] fetching active pools...');
-  const pools = (await getActivePools()).map(normalizePool).filter((pool) => pool.address);
-  console.log(`[crawler] got ${pools.length} pools`);
+  try {
+    console.log('[crawler] fetching active pools...');
+    const pools = (await getActivePools()).map(normalizePool).filter((pool) => pool.address);
+    if (!pools.length) throw new Error('Meteora returned no indexable pools after normalization/filtering');
+    console.log(`[crawler] got ${pools.length} pools`);
 
-  console.log('[crawler] collecting wallets from pools...');
-  const { walletPoolMap, walletOpenPositions } = await collectWalletsFromPools(pools);
-  const uniqueWallets = Array.from(walletPoolMap.keys());
-  console.log(`[crawler] found ${uniqueWallets.length} unique wallets`);
+    console.log('[crawler] collecting wallets from pools...');
+    const { walletPoolMap, walletOpenPositions } = await collectWalletsFromPools(pools);
+    const uniqueWallets = Array.from(walletPoolMap.keys());
+    console.log(`[crawler] found ${uniqueWallets.length} unique wallets`);
 
-  const solPrice = await getSolPrice();
-  console.log(`[crawler] SOL $${solPrice.toFixed(2)}`);
+    const solPrice = await getSolPrice();
+    console.log(`[crawler] SOL $${solPrice.toFixed(2)}`);
 
-  const walletPnls = await computeWalletPnls(uniqueWallets, solPrice, (done, total) => {
-    if (onProgress) onProgress({ phase: 'computing_pnl', done, total, walletsFound: done });
-  }, walletOpenPositions);
+    const walletPnls = await computeWalletPnls(uniqueWallets, solPrice, (done, total) => {
+      if (onProgress) onProgress({ phase: 'computing_pnl', done, total, walletsFound: done });
+    }, walletOpenPositions);
 
-  return {
-    pools,
-    walletPnls,
-    walletPoolMap,
-    solPrice,
-    totalWallets: uniqueWallets.length,
-    successWallets: walletPnls.size,
-  };
+    return {
+      pools,
+      walletPnls,
+      walletPoolMap,
+      solPrice,
+      totalWallets: uniqueWallets.length,
+      successWallets: walletPnls.size,
+    };
+  } catch (error) {
+    console.error('[CRAWLER FATAL]', error instanceof Error ? error.message : String(error), error?.stack || '');
+    throw error;
+  }
 }

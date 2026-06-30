@@ -132,6 +132,7 @@ async function request(baseUrl, path, queryParams = {}, attempt = 1) {
       headers: {
         accept: 'application/json',
         'user-agent': 'MeteoraDLMMLeaderboard/3.0',
+        ...(process.env.METEORA_API_KEY ? { authorization: `Bearer ${process.env.METEORA_API_KEY}` } : {}),
       },
     });
     clearTimeout(timer);
@@ -276,8 +277,13 @@ export async function getActivePools() {
       if (lastTvl < config.minTvlUsd / 2) break;
     } catch (error) {
       console.warn(`[meteora] getActivePools page ${page} failed: ${error.message}`);
+      if (page === 0) throw error;
       break;
     }
+  }
+
+  if (!allPools.length) {
+    throw new Error(`No pools returned from Meteora data API (${DATA_API}/pools)`);
   }
 
   const filtered = allPools.filter((pool) => {

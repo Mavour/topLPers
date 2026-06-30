@@ -260,10 +260,33 @@ export function getLeaderboard({ mode = 'winners', limit = 50, offset = 0, pool 
 
   addRows(rows);
 
+  let usedStaleFallback = false;
+  let periodSource = 'wallet_positions';
+  if (grouped.size === 0) {
+    const fallbackRows = db.prepare(`
+      SELECT
+        wallet,
+        pool_address,
+        pool_name,
+        pnl_usd,
+        pnl_sol,
+        fees_earned_usd,
+        deposited_usd,
+        withdrawn_usd,
+        position_count,
+        last_updated
+      FROM wallet_pool_pnl
+      WHERE (? IS NULL OR pool_address = ?)
+    `).all(pool, pool);
+    addRows(fallbackRows);
+    usedStaleFallback = grouped.size > 0;
+    periodSource = usedStaleFallback ? 'wallet_pool_pnl_stale_fallback' : 'wallet_positions';
+  }
+
   const sorted = Array.from(grouped.values()).sort((left, right) => (
     direction === 'ASC' ? left.pnl_usd - right.pnl_usd : right.pnl_usd - left.pnl_usd
   ));
-  return { rows: sorted.slice(offset, offset + limit), total: sorted.length, usedStaleFallback: false, periodSource: 'wallet_positions' };
+  return { rows: sorted.slice(offset, offset + limit), total: sorted.length, usedStaleFallback, periodSource };
 }
 
 export function getWalletSummary(wallet) {
@@ -320,3 +343,10 @@ export function getStats() {
   const positionCount = db.prepare('SELECT COALESCE(SUM(position_count), 0) AS count FROM wallet_pool_pnl').get().count;
   return { walletCount, poolCount, positionCount, lastRun: getLastIndexRun() };
 }
+
+export const resetIndexedData = db.transaction(() => {
+  db.prepare('DELETE FROM wallet_pnl').run();
+  db.prepare('DELETE FROM wallet_pool_pnl').run();
+  db.prepare('DELETE FROM wallet_positions').run();
+  db.prepare('DELETE FROM index_runs').run();
+});

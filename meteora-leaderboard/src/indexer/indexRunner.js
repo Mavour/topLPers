@@ -165,8 +165,9 @@ export async function runFullIndex() {
     finishIndexRun(runId, { status: 'error', error_message: message });
     indexState.isRunning = false;
     indexState.lastError = message;
+    console.error('[INDEXER FATAL]', message, error?.stack || '');
     log('error', 'Index run failed', message);
-    return indexState;
+    throw error;
   }
 }
 

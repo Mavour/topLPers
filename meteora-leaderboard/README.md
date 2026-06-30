@@ -29,6 +29,15 @@ The first run starts automatically when the database is empty. It can take 10-30
 curl -X POST http://localhost:3001/api/index/run
 ```
 
+## Reset Corrupted Index Data
+
+Use this before a fresh reindex if bad PnL values were written to SQLite:
+
+```bash
+npm run reset:index
+curl -X POST http://localhost:3001/api/index/run
+```
+
 ## API
 
 - `GET /api/status`
