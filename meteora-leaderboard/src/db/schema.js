@@ -63,6 +63,12 @@ export function initDb() {
       pnl_usd REAL DEFAULT 0,
       pnl_sol REAL DEFAULT 0,
       fees_usd REAL DEFAULT 0,
+      pnl_1d_usd REAL DEFAULT 0,
+      pnl_1d_sol REAL DEFAULT 0,
+      fees_1d_usd REAL DEFAULT 0,
+      pnl_7d_usd REAL DEFAULT 0,
+      pnl_7d_sol REAL DEFAULT 0,
+      fees_7d_usd REAL DEFAULT 0,
       deposited_usd REAL DEFAULT 0,
       withdrawn_usd REAL DEFAULT 0,
       current_value_usd REAL DEFAULT 0,
@@ -108,6 +114,20 @@ export function initDb() {
     db.prepare('ALTER TABLE wallet_pool_pnl ADD COLUMN last_updated INTEGER').run();
   } catch {
     // Column already exists.
+  }
+  for (const statement of [
+    'ALTER TABLE wallet_positions ADD COLUMN pnl_1d_usd REAL DEFAULT 0',
+    'ALTER TABLE wallet_positions ADD COLUMN pnl_1d_sol REAL DEFAULT 0',
+    'ALTER TABLE wallet_positions ADD COLUMN fees_1d_usd REAL DEFAULT 0',
+    'ALTER TABLE wallet_positions ADD COLUMN pnl_7d_usd REAL DEFAULT 0',
+    'ALTER TABLE wallet_positions ADD COLUMN pnl_7d_sol REAL DEFAULT 0',
+    'ALTER TABLE wallet_positions ADD COLUMN fees_7d_usd REAL DEFAULT 0',
+  ]) {
+    try {
+      db.prepare(statement).run();
+    } catch {
+      // Column already exists.
+    }
   }
 
   return db;

@@ -467,6 +467,26 @@ function nextHistoryPage(raw, page, eventCount) {
   return eventCount > 0 && eventCount >= 100 ? page + 1 : null;
 }
 
+function summarizePeriodEvents(events, days) {
+  const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+  const periodEvents = events.filter((event) => {
+    const ms = eventMs(event);
+    return Number.isFinite(ms) && ms >= cutoff;
+  });
+  const adds = periodEvents.filter(isAddEvent);
+  const removes = periodEvents.filter(isRemoveEvent);
+  const feeClaims = periodEvents.filter(isFeeEvent);
+  const depositedUsd = adds.reduce((sum, event) => sum + eventUsd(event), 0);
+  const withdrawnUsd = removes.reduce((sum, event) => sum + eventUsd(event), 0);
+  const feesUsd = feeClaims.reduce((sum, event) => sum + eventFeeUsd(event), 0);
+  return {
+    pnlUsd: withdrawnUsd + feesUsd - depositedUsd,
+    feesUsd,
+    depositedUsd,
+    withdrawnUsd,
+  };
+}
+
 async function getPositionHistory(positionAddress) {
   if (!isValidAddress(positionAddress)) return [];
   const cacheKey = `history:${positionAddress}`;
@@ -502,11 +522,21 @@ function summarizePositionHistory(events) {
   const depositedUsd = adds.reduce((sum, event) => sum + eventUsd(event), 0);
   const withdrawnUsd = removes.reduce((sum, event) => sum + eventUsd(event), 0);
   const feesUsd = feeClaims.reduce((sum, event) => sum + eventFeeUsd(event), 0);
+  const oneDay = summarizePeriodEvents(events, 1);
+  const sevenDay = summarizePeriodEvents(events, 7);
   return {
     created_at: createdMs ? new Date(createdMs).toISOString() : null,
     deposited_usd: depositedUsd,
     withdrawn_usd: withdrawnUsd,
     fees_usd: feesUsd,
+    deposited_1d_usd: oneDay.depositedUsd,
+    withdrawn_1d_usd: oneDay.withdrawnUsd,
+    fees_1d_usd: oneDay.feesUsd,
+    pnl_1d_usd: oneDay.pnlUsd,
+    deposited_7d_usd: sevenDay.depositedUsd,
+    withdrawn_7d_usd: sevenDay.withdrawnUsd,
+    fees_7d_usd: sevenDay.feesUsd,
+    pnl_7d_usd: sevenDay.pnlUsd,
     pnl_usd: withdrawnUsd > 0 ? withdrawnUsd + feesUsd - depositedUsd : feesUsd,
     history_event_count: events.length,
   };

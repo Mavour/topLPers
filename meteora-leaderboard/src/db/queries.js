@@ -39,6 +39,12 @@ function cleanWalletPosition(item) {
     pnl_usd: isReasonableUsd(item.pnl_usd) ? finiteNumber(item.pnl_usd) : 0,
     pnl_sol: finiteNumber(item.pnl_sol),
     fees_usd: isReasonableUsd(item.fees_usd) ? finiteNumber(item.fees_usd) : 0,
+    pnl_1d_usd: isReasonableUsd(item.pnl_1d_usd) ? finiteNumber(item.pnl_1d_usd) : 0,
+    pnl_1d_sol: finiteNumber(item.pnl_1d_sol),
+    fees_1d_usd: isReasonableUsd(item.fees_1d_usd) ? finiteNumber(item.fees_1d_usd) : 0,
+    pnl_7d_usd: isReasonableUsd(item.pnl_7d_usd) ? finiteNumber(item.pnl_7d_usd) : 0,
+    pnl_7d_sol: finiteNumber(item.pnl_7d_sol),
+    fees_7d_usd: isReasonableUsd(item.fees_7d_usd) ? finiteNumber(item.fees_7d_usd) : 0,
     deposited_usd: isReasonableUsd(item.deposited_usd) ? finiteNumber(item.deposited_usd) : 0,
     withdrawn_usd: isReasonableUsd(item.withdrawn_usd) ? finiteNumber(item.withdrawn_usd) : 0,
     current_value_usd: isReasonableUsd(item.current_value_usd) ? finiteNumber(item.current_value_usd) : 0,
@@ -110,11 +116,13 @@ const upsertWalletPoolPnlStmt = db.prepare(`
 const upsertWalletPositionStmt = db.prepare(`
   INSERT INTO wallet_positions (
     wallet, position_address, pool_address, pool_name, status, pnl_usd, pnl_sol,
-    fees_usd, deposited_usd, withdrawn_usd, current_value_usd, created_at,
+    fees_usd, pnl_1d_usd, pnl_1d_sol, fees_1d_usd, pnl_7d_usd, pnl_7d_sol,
+    fees_7d_usd, deposited_usd, withdrawn_usd, current_value_usd, created_at,
     closed_at, duration_seconds, bin_range, setup_json, last_updated
   ) VALUES (
     @wallet, @position_address, @pool_address, @pool_name, @status, @pnl_usd, @pnl_sol,
-    @fees_usd, @deposited_usd, @withdrawn_usd, @current_value_usd, @created_at,
+    @fees_usd, @pnl_1d_usd, @pnl_1d_sol, @fees_1d_usd, @pnl_7d_usd, @pnl_7d_sol,
+    @fees_7d_usd, @deposited_usd, @withdrawn_usd, @current_value_usd, @created_at,
     @closed_at, @duration_seconds, @bin_range, @setup_json, @last_updated
   )
   ON CONFLICT(wallet, position_address) DO UPDATE SET
@@ -124,6 +132,12 @@ const upsertWalletPositionStmt = db.prepare(`
     pnl_usd = excluded.pnl_usd,
     pnl_sol = excluded.pnl_sol,
     fees_usd = excluded.fees_usd,
+    pnl_1d_usd = excluded.pnl_1d_usd,
+    pnl_1d_sol = excluded.pnl_1d_sol,
+    fees_1d_usd = excluded.fees_1d_usd,
+    pnl_7d_usd = excluded.pnl_7d_usd,
+    pnl_7d_sol = excluded.pnl_7d_sol,
+    fees_7d_usd = excluded.fees_7d_usd,
     deposited_usd = excluded.deposited_usd,
     withdrawn_usd = excluded.withdrawn_usd,
     current_value_usd = excluded.current_value_usd,
@@ -181,6 +195,12 @@ export function upsertWalletPosition(data) {
     pnl_usd: 0,
     pnl_sol: 0,
     fees_usd: 0,
+    pnl_1d_usd: 0,
+    pnl_1d_sol: 0,
+    fees_1d_usd: 0,
+    pnl_7d_usd: 0,
+    pnl_7d_sol: 0,
+    fees_7d_usd: 0,
     deposited_usd: 0,
     withdrawn_usd: 0,
     current_value_usd: 0,
@@ -200,34 +220,28 @@ export function getLeaderboard({ mode = 'winners', limit = 50, offset = 0, pool 
   const direction = mode === 'losers' ? 'ASC' : 'DESC';
   const requestedDays = Number.parseInt(String(period).replace(/d$/i, ''), 10);
   const days = requestedDays === 1 ? 1 : 7;
-  const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
   const poolFilter = pool ? 'AND pool_address = ?' : '';
-  const useActivityWindow = days === 1;
-  const periodWhere = useActivityWindow
-    ? `AND (
-      (closed_at IS NOT NULL AND closed_at >= ?)
-      OR (created_at IS NOT NULL AND created_at >= ?)
-    )`
-    : '';
-  const periodArgs = useActivityWindow ? [cutoff, cutoff] : [];
-  const queryArgs = pool ? [...periodArgs, pool] : periodArgs;
+  const pnlColumn = days === 1 ? 'pnl_1d_usd' : 'pnl_7d_usd';
+  const pnlSolColumn = days === 1 ? 'pnl_1d_sol' : 'pnl_7d_sol';
+  const feesColumn = days === 1 ? 'fees_1d_usd' : 'fees_7d_usd';
+  const queryArgs = pool ? [pool] : [];
   const rows = db.prepare(`
     SELECT
       wallet,
       pool_address,
       COALESCE(MAX(pool_name), pool_address) AS pool_name,
-      SUM(pnl_usd) AS pnl_usd,
-      SUM(pnl_sol) AS pnl_sol,
-      SUM(fees_usd) AS fees_earned_usd,
+      SUM(${pnlColumn}) AS pnl_usd,
+      SUM(${pnlSolColumn}) AS pnl_sol,
+      SUM(${feesColumn}) AS fees_earned_usd,
       SUM(deposited_usd) AS deposited_usd,
       SUM(withdrawn_usd) AS withdrawn_usd,
       COUNT(*) AS position_count,
-      SUM(CASE WHEN pnl_usd >= ${MIN_RANKED_PNL_USD} THEN 1 ELSE 0 END) AS winning_position_count,
+      SUM(CASE WHEN ${pnlColumn} >= ${MIN_RANKED_PNL_USD} THEN 1 ELSE 0 END) AS winning_position_count,
       MAX(last_updated) AS last_updated
     FROM wallet_positions
     WHERE 1 = 1
-    ${periodWhere}
     ${poolFilter}
+      AND (ABS(${pnlColumn}) >= ${MIN_RANKED_PNL_USD} OR ABS(${feesColumn}) >= ${MIN_RANKED_PNL_USD})
     GROUP BY wallet, pool_address
   `).all(...queryArgs);
 
@@ -271,8 +285,8 @@ export function getLeaderboard({ mode = 'winners', limit = 50, offset = 0, pool 
   addRows(rows);
 
   let usedStaleFallback = false;
-  let periodSource = useActivityWindow ? 'wallet_positions_activity_window' : 'wallet_positions_latest_indexed';
-  if (grouped.size === 0) {
+  let periodSource = days === 1 ? 'wallet_positions_1d_period' : 'wallet_positions_7d_period';
+  if (grouped.size === 0 && String(period).toLowerCase() === 'latest') {
     const fallbackRows = db.prepare(`
       SELECT
         wallet,

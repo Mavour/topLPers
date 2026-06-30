@@ -281,6 +281,48 @@ function durationSeconds(start, end) {
   return created > 0 && closed > created ? closed - created : null;
 }
 
+function timestampMs(value) {
+  if (!value) return null;
+  const numeric = Number(value);
+  if (Number.isFinite(numeric) && numeric > 0) return numeric < 10_000_000_000 ? numeric * 1000 : numeric;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function isWithinDays(value, days) {
+  const ms = timestampMs(value);
+  return Number.isFinite(ms) && ms >= Date.now() - days * 24 * 60 * 60 * 1000;
+}
+
+function periodValues(pos, pnlUsd, feesUsd, solPriceUsd, { isOpen }) {
+  const opened = pos.created_at || pos.createdAt;
+  const closed = pos.closed_at || pos.closedAt;
+  const explicitPnl1d = number(firstDefined(pos, ['pnl_1d_usd', 'pnl1dUsd']), NaN);
+  const explicitPnl7d = number(firstDefined(pos, ['pnl_7d_usd', 'pnl7dUsd']), NaN);
+  const explicitFees1d = number(firstDefined(pos, ['fees_1d_usd', 'fees1dUsd']), NaN);
+  const explicitFees7d = number(firstDefined(pos, ['fees_7d_usd', 'fees7dUsd']), NaN);
+  const opened1d = isWithinDays(opened, 1);
+  const opened7d = isWithinDays(opened, 7);
+  const closed1d = isWithinDays(closed, 1);
+  const closed7d = isWithinDays(closed, 7);
+  const fees1dUsd = Number.isFinite(explicitFees1d) ? explicitFees1d : (opened1d || closed1d ? feesUsd : 0);
+  const fees7dUsd = Number.isFinite(explicitFees7d) ? explicitFees7d : (opened7d || closed7d ? feesUsd : 0);
+  const pnl1dUsd = isOpen
+    ? (opened1d ? pnlUsd : (Number.isFinite(explicitPnl1d) ? explicitPnl1d : fees1dUsd))
+    : (Number.isFinite(explicitPnl1d) ? explicitPnl1d : (closed1d ? pnlUsd : 0));
+  const pnl7dUsd = isOpen
+    ? (opened7d ? pnlUsd : (Number.isFinite(explicitPnl7d) ? explicitPnl7d : fees7dUsd))
+    : (Number.isFinite(explicitPnl7d) ? explicitPnl7d : (closed7d ? pnlUsd : 0));
+  return {
+    pnl1dUsd,
+    pnl1dSol: solPriceUsd > 0 ? pnl1dUsd / solPriceUsd : 0,
+    fees1dUsd,
+    pnl7dUsd,
+    pnl7dSol: solPriceUsd > 0 ? pnl7dUsd / solPriceUsd : 0,
+    fees7dUsd,
+  };
+}
+
 function poolName(pos) {
   return firstDefined(pos, [
     'pool_name',
@@ -327,6 +369,7 @@ export function normalizeClosedPosition(pos, solPriceUsd = 150) {
   const computedPnlUsd = withdrawnUsd + feesUsd - depositedUsd;
   const basePnlUsd = Number.isFinite(rawPnlUsd) ? rawPnlUsd : computedPnlUsd;
   const pnlUsd = suspectPnl(basePnlUsd, depositedUsd, withdrawnUsd) ? computedPnlUsd : basePnlUsd;
+  const period = periodValues(pos, pnlUsd, feesUsd, solPriceUsd, { isOpen: false });
 
   return {
     positionAddress: pos.position_address || pos.address || '',
@@ -335,6 +378,7 @@ export function normalizeClosedPosition(pos, solPriceUsd = 150) {
     pnlUsd,
     pnlSol: solPriceUsd > 0 ? pnlUsd / solPriceUsd : 0,
     feesUsd,
+    ...period,
     depositedUsd,
     withdrawnUsd,
     closedAt: pos.closed_at || null,
@@ -401,6 +445,7 @@ export function normalizeOpenPosition(pos, solPriceUsd = 150) {
       : computedPnlUsd;
   const fallbackPnlUsd = !hasCostBasis || computedLooksLikeMissingOpenValue ? feesUsd : computedPnlUsd;
   const pnlUsd = suspectPnl(basePnlUsd, Math.max(currentValueUsd, depositedUsd), withdrawnUsd) ? fallbackPnlUsd : basePnlUsd;
+  const period = periodValues(pos, pnlUsd, feesUsd, solPriceUsd, { isOpen: true });
 
   return {
     positionAddress: pos.position_address || pos.address || '',
@@ -409,6 +454,7 @@ export function normalizeOpenPosition(pos, solPriceUsd = 150) {
     pnlUsd,
     pnlSol: solPriceUsd > 0 ? pnlUsd / solPriceUsd : 0,
     feesUsd,
+    ...period,
     depositedUsd,
     withdrawnUsd,
     closedAt: null,
