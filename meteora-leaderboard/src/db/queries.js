@@ -2,6 +2,7 @@ import { getDb } from './schema.js';
 
 const db = getDb();
 const MAX_REASONABLE_USD = 100_000_000;
+const MIN_RANKED_PNL_USD = 0.01;
 
 function finiteNumber(value) {
   const parsed = Number(value);
@@ -213,7 +214,7 @@ export function getLeaderboard({ mode = 'winners', limit = 50, offset = 0, pool 
       SUM(deposited_usd) AS deposited_usd,
       SUM(withdrawn_usd) AS withdrawn_usd,
       COUNT(*) AS position_count,
-      SUM(CASE WHEN pnl_usd > 0 THEN 1 ELSE 0 END) AS winning_position_count,
+      SUM(CASE WHEN pnl_usd >= ${MIN_RANKED_PNL_USD} THEN 1 ELSE 0 END) AS winning_position_count,
       MAX(last_updated) AS last_updated
     FROM wallet_positions
     WHERE (
@@ -287,7 +288,13 @@ export function getLeaderboard({ mode = 'winners', limit = 50, offset = 0, pool 
     periodSource = usedStaleFallback ? 'wallet_pool_pnl_stale_fallback' : 'wallet_positions';
   }
 
-  const sorted = Array.from(grouped.values()).sort((left, right) => (
+  const rankedRows = Array.from(grouped.values()).filter((row) => (
+    mode === 'losers'
+      ? (row.pnl_usd || 0) <= -MIN_RANKED_PNL_USD
+      : (row.pnl_usd || 0) >= MIN_RANKED_PNL_USD
+  ));
+
+  const sorted = rankedRows.sort((left, right) => (
     direction === 'ASC' ? left.pnl_usd - right.pnl_usd : right.pnl_usd - left.pnl_usd
   ));
   return { rows: sorted.slice(offset, offset + limit), total: sorted.length, usedStaleFallback, periodSource };

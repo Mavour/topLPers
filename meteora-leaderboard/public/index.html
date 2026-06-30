@@ -312,7 +312,9 @@
       function formatSol(n) {
         const value = Number(n) || 0;
         const sign = value > 0 ? '+' : value < 0 ? '-' : '';
-        return `${sign}${Math.abs(value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} SOL`;
+        const abs = Math.abs(value);
+        const digits = abs > 0 && abs < 0.01 ? 4 : 2;
+        return `${sign}${abs.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits })} SOL`;
       }
 
       function formatWinRate(row) {
