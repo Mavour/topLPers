@@ -219,7 +219,7 @@ export function getLeaderboard({ mode = 'winners', limit = 50, offset = 0, pool 
     FROM wallet_positions
     WHERE (
       (closed_at IS NOT NULL AND closed_at >= ?)
-      OR (status = 'open' AND last_updated IS NOT NULL AND last_updated >= ?)
+      OR (created_at IS NOT NULL AND created_at >= ?)
     )
     ${poolFilter}
     GROUP BY wallet, pool_address
@@ -265,7 +265,7 @@ export function getLeaderboard({ mode = 'winners', limit = 50, offset = 0, pool 
   addRows(rows);
 
   let usedStaleFallback = false;
-  let periodSource = 'wallet_positions';
+  let periodSource = 'wallet_positions_activity_window';
   if (grouped.size === 0) {
     const fallbackRows = db.prepare(`
       SELECT
