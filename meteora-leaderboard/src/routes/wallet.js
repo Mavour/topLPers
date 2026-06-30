@@ -278,7 +278,12 @@ router.get('/:address', async (req, res) => {
         .some((position) => position.positionAddress === positionAddress);
     }
 
+    const liveOpenPositionAddresses = new Set(openPositions
+      .map((position) => position.positionAddress)
+      .filter(Boolean));
+
     for (const position of indexedPositions) {
+      if (position.status === 'open' && liveOpenPositionAddresses.has(position.positionAddress)) continue;
       const pool = ensurePool(position.poolAddress, position.poolName);
       if (hasPosition(pool, position.positionAddress)) continue;
       const decorated = { ...position, setup: mergedSetup(position, pool) };
@@ -340,20 +345,25 @@ router.get('/:address', async (req, res) => {
       });
     }
 
-    const mergedPoolBreakdown = Array.from(pools.values()).map((pool) => ({
-      ...pool,
-      pnlUsd: cleanUsd(pool.pnlUsd),
-      pnlSol: cleanUsd(pool.pnlSol),
-      feesEarnedUsd: cleanUsd(pool.feesEarnedUsd),
-      depositedUsd: cleanUsd(pool.depositedUsd),
-      withdrawnUsd: cleanUsd(pool.withdrawnUsd),
-      positionCount: Math.max(pool.positionCount || 0, pool.openPositions.length + pool.closedPositions.length),
-      hasOpenPosition: pool.hasOpenPosition || pool.openPositions.length > 0,
-      positions: [...pool.openPositions, ...pool.closedPositions, ...aggregatePositionFallback(pool)].sort((left, right) => {
+    const mergedPoolBreakdown = Array.from(pools.values()).map((pool) => {
+      const detailedPositions = [...pool.openPositions, ...pool.closedPositions];
+      const useDetailedTotals = detailedPositions.length > 0;
+      const positions = [...detailedPositions, ...aggregatePositionFallback(pool)].sort((left, right) => {
         if (left.status !== right.status) return left.status === 'open' ? -1 : 1;
         return new Date(right.createdAt || 0).getTime() - new Date(left.createdAt || 0).getTime();
-      }),
-    })).sort((left, right) => (right.pnlUsd || 0) - (left.pnlUsd || 0));
+      });
+      return {
+        ...pool,
+        pnlUsd: cleanUsd(useDetailedTotals ? detailedPositions.reduce((sum, position) => sum + (position.pnlUsd || 0), 0) : pool.pnlUsd),
+        pnlSol: useDetailedTotals ? detailedPositions.reduce((sum, position) => sum + (position.pnlSol || 0), 0) : cleanUsd(pool.pnlSol),
+        feesEarnedUsd: cleanUsd(useDetailedTotals ? detailedPositions.reduce((sum, position) => sum + (position.feesUsd || 0), 0) : pool.feesEarnedUsd),
+        depositedUsd: cleanUsd(useDetailedTotals ? detailedPositions.reduce((sum, position) => sum + (position.depositedUsd || 0), 0) : pool.depositedUsd),
+        withdrawnUsd: cleanUsd(useDetailedTotals ? detailedPositions.reduce((sum, position) => sum + (position.withdrawnUsd || 0), 0) : pool.withdrawnUsd),
+        positionCount: Math.max(pool.positionCount || 0, positions.length),
+        hasOpenPosition: pool.hasOpenPosition || pool.openPositions.length > 0,
+        positions,
+      };
+    }).sort((left, right) => (right.pnlUsd || 0) - (left.pnlUsd || 0));
 
     res.json({
       wallet,

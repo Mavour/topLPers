@@ -316,8 +316,21 @@ export function normalizeOpenPosition(pos, solPriceUsd = 150) {
   ]);
   const rawPnlUsd = number(pos.pnl ?? pos.pnl_usd ?? pos.unrealized_pnl ?? pos.net_pnl, NaN);
   const computedPnlUsd = currentValueUsd + withdrawnUsd + feesUsd - depositedUsd;
-  const basePnlUsd = Number.isFinite(rawPnlUsd) ? rawPnlUsd : computedPnlUsd;
-  const pnlUsd = suspectPnl(basePnlUsd, Math.max(currentValueUsd, depositedUsd), withdrawnUsd) ? computedPnlUsd : basePnlUsd;
+  const hasLiveCurrentValue = currentValueUsd > 0;
+  const rawLooksLikeMissingOpenValue = !hasLiveCurrentValue
+    && depositedUsd > 0
+    && Number.isFinite(rawPnlUsd)
+    && rawPnlUsd <= -depositedUsd * 0.5;
+  const computedLooksLikeMissingOpenValue = !hasLiveCurrentValue
+    && depositedUsd > 0
+    && computedPnlUsd <= -depositedUsd * 0.5;
+  const basePnlUsd = Number.isFinite(rawPnlUsd) && !rawLooksLikeMissingOpenValue
+    ? rawPnlUsd
+    : computedLooksLikeMissingOpenValue
+      ? feesUsd
+      : computedPnlUsd;
+  const fallbackPnlUsd = computedLooksLikeMissingOpenValue ? feesUsd : computedPnlUsd;
+  const pnlUsd = suspectPnl(basePnlUsd, Math.max(currentValueUsd, depositedUsd), withdrawnUsd) ? fallbackPnlUsd : basePnlUsd;
 
   return {
     positionAddress: pos.position_address || pos.address || '',
