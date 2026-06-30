@@ -373,6 +373,20 @@ function eventType(event) {
   return String(event?.eventType || event?.type || '').toLowerCase();
 }
 
+function isAddEvent(event) {
+  return ['add', 'deposit', 'add_liquidity', 'increase_liquidity'].includes(eventType(event));
+}
+
+function isRemoveEvent(event) {
+  return ['remove', 'withdraw', 'remove_liquidity', 'decrease_liquidity', 'close_position'].includes(eventType(event));
+}
+
+function isFeeEvent(event) {
+  const type = eventType(event);
+  return ['claim_fee', 'claim_fees', 'fee_claim', 'fee_claimed', 'claim'].includes(type)
+    || (type.includes('fee') && type.includes('claim'));
+}
+
 function eventMs(event) {
   const raw = event?.blockTime ?? event?.createdAt ?? event?.created_at ?? event?.timestamp;
   const numeric = Number(raw);
@@ -401,9 +415,9 @@ async function getPositionHistory(positionAddress) {
 }
 
 function summarizePositionHistory(events) {
-  const adds = events.filter((event) => eventType(event) === 'add');
-  const removes = events.filter((event) => eventType(event) === 'remove');
-  const feeClaims = events.filter((event) => eventType(event) === 'claim_fee');
+  const adds = events.filter(isAddEvent);
+  const removes = events.filter(isRemoveEvent);
+  const feeClaims = events.filter(isFeeEvent);
   const times = (adds.length ? adds : events)
     .map(eventMs)
     .filter((value) => Number.isFinite(value) && value > 0);

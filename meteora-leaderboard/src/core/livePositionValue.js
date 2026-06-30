@@ -46,6 +46,18 @@ function bnToUiAmount(value, decimals) {
   return numeric / 10 ** decimals;
 }
 
+function amountFrom(data, keys, decimals) {
+  for (const key of keys) {
+    const value = key.includes('.')
+      ? key.split('.').reduce((acc, part) => acc?.[part], data)
+      : data?.[key];
+    if (value !== undefined && value !== null && value !== '') {
+      return bnToUiAmount(value, decimals);
+    }
+  }
+  return 0;
+}
+
 function stringAmount(value, decimals) {
   const parsed = Number.parseFloat(value);
   return Number.isFinite(parsed) ? parsed / 10 ** decimals : 0;
@@ -78,8 +90,26 @@ export async function getLivePositionState(positionAddress, poolAddress, poolInf
   const state = {
     totalXAmount: stringAmount(data.totalXAmount, decimalsX),
     totalYAmount: stringAmount(data.totalYAmount, decimalsY),
-    unclaimedFeeX: bnToUiAmount(data.feeX, decimalsX),
-    unclaimedFeeY: bnToUiAmount(data.feeY, decimalsY),
+    unclaimedFeeX: amountFrom(data, [
+      'feeX',
+      'fee_x',
+      'feesX',
+      'fees_x',
+      'unclaimedFeeX',
+      'unclaimed_fee_x',
+      'position.feeX',
+      'position.unclaimedFeeX',
+    ], decimalsX),
+    unclaimedFeeY: amountFrom(data, [
+      'feeY',
+      'fee_y',
+      'feesY',
+      'fees_y',
+      'unclaimedFeeY',
+      'unclaimed_fee_y',
+      'position.feeY',
+      'position.unclaimedFeeY',
+    ], decimalsY),
     lowerBinId: data.lowerBinId,
     upperBinId: data.upperBinId,
     owner: data.owner?.toBase58?.(),

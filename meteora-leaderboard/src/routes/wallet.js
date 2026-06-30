@@ -193,13 +193,28 @@ function aggregatePositionFallback(pool) {
   }];
 }
 
+function summaryFromPoolBreakdown(wallet, rows) {
+  if (!rows.length) return null;
+  return {
+    wallet,
+    pnl_usd: rows.reduce((sum, row) => sum + cleanUsd(row.pnl_usd), 0),
+    pnl_sol: rows.reduce((sum, row) => sum + cleanUsd(row.pnl_sol), 0),
+    fees_earned_usd: rows.reduce((sum, row) => sum + cleanUsd(row.fees_earned_usd), 0),
+    deposited_usd: rows.reduce((sum, row) => sum + cleanUsd(row.deposited_usd), 0),
+    withdrawn_usd: rows.reduce((sum, row) => sum + cleanUsd(row.withdrawn_usd), 0),
+    position_count: rows.reduce((sum, row) => sum + (Number(row.position_count) || 0), 0),
+    pool_count: new Set(rows.map((row) => row.pool_address).filter(Boolean)).size,
+    last_updated: rows.reduce((latest, row) => Math.max(latest, Number(row.last_updated) || 0), 0) || null,
+  };
+}
+
 router.get('/:address', async (req, res) => {
   try {
     const wallet = req.params.address;
     if (!isValidAddress(wallet)) return res.status(400).json({ error: 'Wallet address tidak valid' });
 
-    const summary = getWalletSummary(wallet);
     const poolBreakdown = getWalletPoolBreakdown(wallet);
+    const summary = getWalletSummary(wallet) || summaryFromPoolBreakdown(wallet, poolBreakdown);
     const indexedPositions = getWalletPositions(wallet).map(indexedPosition);
     const solPrice = await getSolPrice();
     const [rawOpenPositions, rawClosedPositions] = await Promise.all([
@@ -289,7 +304,7 @@ router.get('/:address', async (req, res) => {
       ...pricedMeta(poolAddressOf(position)),
       ...position,
     }, solPrice));
-    if (!summary && openPositions.length === 0 && closedPositions.length === 0) {
+    if (!summary && poolBreakdown.length === 0 && openPositions.length === 0 && closedPositions.length === 0) {
       return res.status(404).json({ error: 'Wallet tidak ditemukan atau belum pernah LP di Meteora' });
     }
 

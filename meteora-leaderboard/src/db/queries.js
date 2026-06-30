@@ -219,7 +219,7 @@ export function getLeaderboard({ mode = 'winners', limit = 50, offset = 0, pool 
     FROM wallet_positions
     WHERE (
       (closed_at IS NOT NULL AND closed_at >= ?)
-      OR (status = 'open' AND created_at IS NOT NULL AND created_at >= ?)
+      OR (status = 'open' AND last_updated IS NOT NULL AND last_updated >= ?)
     )
     ${poolFilter}
     GROUP BY wallet, pool_address

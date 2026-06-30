@@ -472,7 +472,7 @@
           const running = state.status?.indexer?.isRunning;
           el.emptyState.innerHTML = running
             ? `<div class="spinner"></div><h3>Initial indexing in progress</h3><p>Fetching data from ${state.status.indexer.progress.poolsDone}/${state.status.indexer.progress.poolsTotal} pools...</p><p>This may take 10-30 minutes on first run.</p>`
-            : '<h3>No data yet</h3><p>Trigger an index run to populate the leaderboard.</p>';
+            : `<h3>No ranked wallets for ${state.period}d</h3><p>Try 7d, switch winners/losers, clear the pool filter, or run a fresh index.</p>`;
         }
       }
 
@@ -652,15 +652,16 @@
       }
 
       async function fetchPools() {
+        el.poolGrid.innerHTML = '<div class="empty-state">Loading indexed pools...</div>';
         try {
           const result = await api('/api/pools', { limit: 100 });
-          state.pools = result.pools;
-          el.poolGrid.innerHTML = result.pools.map((pool) => `
+          state.pools = result.pools || [];
+          el.poolGrid.innerHTML = state.pools.map((pool) => `
             <div class="pool-card" data-pool="${pool.address}">
-              <strong>${pool.name}</strong>
+              <strong>${escHtml(pool.name || shortWallet(pool.address))}</strong>
               <span>${shortWallet(pool.address)}</span>
               <span>TVL ${formatUsd(pool.tvlUsd).replace('+', '')} | Vol ${formatUsd(pool.volume24hUsd).replace('+', '')}</span>
-              <span>Fee ${pool.feeRate || 0}% | Positions ${pool.positionCount || 0}</span>
+              <span>Fee ${pool.feeRate || 0}% | Indexed rows ${pool.positionCount || 0}</span>
             </div>
           `).join('') || '<div class="empty-state">No indexed pools yet.</div>';
         } catch (error) {
@@ -704,7 +705,9 @@
         state.activeTab = tab;
         document.querySelectorAll('[data-tab]').forEach((button) => button.classList.toggle('active', button.dataset.tab === tab));
         document.querySelectorAll('.view').forEach((view) => view.classList.remove('active'));
-        document.getElementById(`${tab}View`).classList.add('active');
+        const view = document.getElementById(`${tab}View`);
+        if (!view) return;
+        view.classList.add('active');
         if (tab === 'pools') fetchPools();
       }
 
@@ -764,6 +767,7 @@
           state.period = button.dataset.period;
           state.offset = 0;
           document.querySelectorAll('[data-period]').forEach((item) => item.classList.toggle('active', item === button));
+          if (state.activeTab !== 'leaderboard') setTab('leaderboard');
           fetchLeaderboard();
         });
       });
@@ -805,6 +809,7 @@
       });
 
       function boot() {
+        setTab(state.activeTab);
         fetchStatus();
         fetchLeaderboard();
       }

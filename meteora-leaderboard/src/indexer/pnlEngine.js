@@ -155,6 +155,90 @@ function sumUsd(row, keys) {
   return 0;
 }
 
+const TOTAL_FEE_USD_KEYS = [
+  'fees_earned_usd',
+  'feesEarnedUsd',
+  'total_fees_usd',
+  'totalFeesUsd',
+  'total_fee_usd',
+  'totalFeeUsd',
+];
+
+const CLAIMED_FEE_USD_KEYS = [
+  'claim_fee_usd',
+  'claimFeeUsd',
+  'claimed_fees_usd',
+  'claimedFeesUsd',
+  'total_claimed_fees',
+  'totalClaimedFees',
+  'total_claimed_fees_usd',
+  'fees_usd',
+];
+
+const UNCLAIMED_FEE_USD_KEYS = [
+  'unclaimed_fees_usd',
+  'unclaimedFeesUsd',
+  'unclaimed_fee_usd',
+  'unclaimedFeeUsd',
+];
+
+const CLAIMED_FEE_X_KEYS = [
+  'claim_fee_x_amount',
+  'claimFeeXAmount',
+  'claimed_fee_x_amount',
+  'claimedFeeXAmount',
+  'claimed_fees_x_amount',
+  'claimedFeesXAmount',
+  'total_claimed_fee_x_amount',
+  'fee_x_amount',
+  'feeXAmount',
+  'fees_x_amount',
+  'feesXAmount',
+  'fee_x',
+];
+
+const CLAIMED_FEE_Y_KEYS = [
+  'claim_fee_y_amount',
+  'claimFeeYAmount',
+  'claimed_fee_y_amount',
+  'claimedFeeYAmount',
+  'claimed_fees_y_amount',
+  'claimedFeesYAmount',
+  'total_claimed_fee_y_amount',
+  'fee_y_amount',
+  'feeYAmount',
+  'fees_y_amount',
+  'feesYAmount',
+  'fee_y',
+];
+
+const UNCLAIMED_FEE_X_KEYS = [
+  'unclaimed_fee_x',
+  'unclaimedFeeX',
+  'unclaimed_fee_x_amount',
+  'unclaimedFeeXAmount',
+  'unclaimed_fees_x_amount',
+  'unclaimedFeesXAmount',
+];
+
+const UNCLAIMED_FEE_Y_KEYS = [
+  'unclaimed_fee_y',
+  'unclaimedFeeY',
+  'unclaimed_fee_y_amount',
+  'unclaimedFeeYAmount',
+  'unclaimed_fees_y_amount',
+  'unclaimedFeesYAmount',
+];
+
+function positionFeesUsd(pos, poolInfo, solPriceUsd, { includeUnclaimed = false } = {}) {
+  const total = usdFromSources(pos, poolInfo, solPriceUsd, TOTAL_FEE_USD_KEYS);
+  const claimed = usdFromSources(pos, poolInfo, solPriceUsd, CLAIMED_FEE_USD_KEYS, CLAIMED_FEE_X_KEYS, CLAIMED_FEE_Y_KEYS);
+  const unclaimed = includeUnclaimed
+    ? usdFromSources(pos, poolInfo, solPriceUsd, UNCLAIMED_FEE_USD_KEYS, UNCLAIMED_FEE_X_KEYS, UNCLAIMED_FEE_Y_KEYS)
+    : 0;
+  return Math.max(total, claimed + unclaimed);
+}
+
 function firstDefined(row, keys) {
   for (const key of keys) {
     if (key.includes('.')) {
@@ -197,21 +281,8 @@ function poolName(pos) {
 
 export function normalizeClosedPosition(pos, solPriceUsd = 150) {
   const poolInfo = pos.pool || pos.pool_info || pos;
-  const feesUsd = usdFromSources(pos, poolInfo, solPriceUsd, [
-    'total_claimed_fees',
-    'fees_usd',
-    'total_fees_usd',
-  ], [
-    'fee_x_amount',
-    'feeXAmount',
-    'fees_x_amount',
-    'feesXAmount',
-  ], [
-    'fee_y_amount',
-    'feeYAmount',
-    'fees_y_amount',
-    'feesYAmount',
-  ]) || sumUsd(pos, ['total_claimed_fees', 'fees_usd', 'total_fees_usd']);
+  const feesUsd = positionFeesUsd(pos, poolInfo, solPriceUsd)
+    || sumUsd(pos, [...TOTAL_FEE_USD_KEYS, ...CLAIMED_FEE_USD_KEYS]);
   const depositedUsd = usdFromSources(pos, poolInfo, solPriceUsd, [
     'total_deposits',
     'deposited_usd',
@@ -267,24 +338,8 @@ export function normalizeClosedPosition(pos, solPriceUsd = 150) {
 
 export function normalizeOpenPosition(pos, solPriceUsd = 150) {
   const poolInfo = pos.pool || pos.pool_info || pos;
-  const feesUsd = usdFromSources(pos, poolInfo, solPriceUsd, [
-    'unclaimed_fees_usd',
-    'fees_usd',
-  ], [
-    'unclaimed_fee_x',
-    'unclaimedFeeX',
-    'fee_x_amount',
-    'feeXAmount',
-    'fees_x_amount',
-    'feesXAmount',
-  ], [
-    'unclaimed_fee_y',
-    'unclaimedFeeY',
-    'fee_y_amount',
-    'feeYAmount',
-    'fees_y_amount',
-    'feesYAmount',
-  ]) || number(pos.unclaimed_fee_x_usd) + number(pos.unclaimed_fee_y_usd);
+  const feesUsd = positionFeesUsd(pos, poolInfo, solPriceUsd, { includeUnclaimed: true })
+    || number(pos.unclaimed_fee_x_usd) + number(pos.unclaimed_fee_y_usd);
   const currentValueUsd = usdFromSources(pos, poolInfo, solPriceUsd, [
     'current_value_usd',
     'position_value_usd',
