@@ -59,7 +59,7 @@ function ownerAddress(position) {
 }
 
 export async function collectWalletsFromPools(pools) {
-  const limit = pLimit(8);
+  const limit = pLimit(config.concurrency);
   const walletPoolMap = new Map();
   const walletOpenPositions = new Map();
 

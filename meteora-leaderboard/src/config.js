@@ -15,7 +15,7 @@ export const config = Object.freeze({
   topPoolsLimit: intFromEnv('TOP_POOLS_LIMIT', 50),
   maxPositionsPerPool: intFromEnv('MAX_POSITIONS_PER_POOL', 200),
   maxPositions: intFromEnv('MAX_POSITIONS_PER_POOL', 200),
-  concurrency: Math.min(intFromEnv('CONCURRENCY', 6), 10),
+  concurrency: Math.min(intFromEnv('CONCURRENCY', 2), 6),
   cronSchedule: process.env.CRON_SCHEDULE || '0 * * * *',
   dbPath: process.env.DB_PATH || './leaderboard.db',
   meteoraApiBase: process.env.METEORA_API_BASE || 'https://dlmm.datapi.meteora.ag',
