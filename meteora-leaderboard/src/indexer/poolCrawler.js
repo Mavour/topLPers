@@ -6,6 +6,7 @@ import {
   getPoolPositions,
   getWalletClosedPositions,
   getWalletOpenPositions,
+  isValidAddress,
   numberFrom,
   tokenMint,
 } from '../api/meteora.js';
@@ -58,6 +59,11 @@ function ownerAddress(position) {
   return firstDefined(position, ['owner', 'wallet', 'user', 'ownerAddress', 'owner_address', 'authority']);
 }
 
+function isUsableWallet(value) {
+  const wallet = String(value || '');
+  return isValidAddress(wallet) && !/^1+$/.test(wallet);
+}
+
 export async function collectWalletsFromPools(pools) {
   const limit = pLimit(config.concurrency);
   const walletPoolMap = new Map();
@@ -68,7 +74,7 @@ export async function collectWalletsFromPools(pools) {
       const positions = await getPoolPositions(pool.address, config.maxPositions);
       for (const pos of positions) {
         const owner = ownerAddress(pos);
-        if (!owner || owner.length < 32) continue;
+        if (!isUsableWallet(owner)) continue;
         if (!walletPoolMap.has(owner)) walletPoolMap.set(owner, new Set());
         walletPoolMap.get(owner).add(pool.address);
         if (!walletOpenPositions.has(owner)) walletOpenPositions.set(owner, []);

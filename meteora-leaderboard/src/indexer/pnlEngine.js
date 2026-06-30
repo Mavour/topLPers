@@ -371,6 +371,7 @@ export function normalizeOpenPosition(pos, solPriceUsd = 150) {
   ]);
   const rawPnlUsd = number(pos.pnl ?? pos.pnl_usd ?? pos.unrealized_pnl ?? pos.net_pnl, NaN);
   const computedPnlUsd = currentValueUsd + withdrawnUsd + feesUsd - depositedUsd;
+  const hasCostBasis = depositedUsd > 0 || withdrawnUsd > 0;
   const hasLiveCurrentValue = currentValueUsd > 0;
   const rawLooksLikeMissingOpenValue = !hasLiveCurrentValue
     && depositedUsd > 0
@@ -381,10 +382,12 @@ export function normalizeOpenPosition(pos, solPriceUsd = 150) {
     && computedPnlUsd <= -depositedUsd * 0.5;
   const basePnlUsd = Number.isFinite(rawPnlUsd) && !rawLooksLikeMissingOpenValue
     ? rawPnlUsd
+    : !hasCostBasis
+      ? feesUsd
     : computedLooksLikeMissingOpenValue
       ? feesUsd
       : computedPnlUsd;
-  const fallbackPnlUsd = computedLooksLikeMissingOpenValue ? feesUsd : computedPnlUsd;
+  const fallbackPnlUsd = !hasCostBasis || computedLooksLikeMissingOpenValue ? feesUsd : computedPnlUsd;
   const pnlUsd = suspectPnl(basePnlUsd, Math.max(currentValueUsd, depositedUsd), withdrawnUsd) ? fallbackPnlUsd : basePnlUsd;
 
   return {
