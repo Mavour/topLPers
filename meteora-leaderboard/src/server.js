@@ -4,7 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { config } from './config.js';
 import { initDb } from './db/schema.js';
-import { getStats } from './db/queries.js';
+import { getStats, markInterruptedIndexRuns } from './db/queries.js';
 import { runFullIndex, setupCron } from './indexer/indexRunner.js';
 import leaderboardRouter from './routes/leaderboard.js';
 import poolsRouter from './routes/pools.js';
@@ -37,6 +37,7 @@ app.get('*', (req, res) => {
 });
 
 initDb();
+markInterruptedIndexRuns();
 setupCron();
 
 app.listen(config.port, () => {

@@ -28,6 +28,12 @@ function rankRows(rows, offset) {
   }));
 }
 
+function emptyMessage(lastRun) {
+  if (!lastRun) return 'Index belum dijalankan';
+  if (lastRun.status === 'running') return 'Index sedang berjalan, leaderboard akan terisi setelah wallet PnL tersimpan';
+  return 'Tidak ada posisi dengan aktivitas pada periode ini';
+}
+
 router.get('/', (req, res) => {
   try {
     const mode = String(req.query.mode || 'winners').toLowerCase();
@@ -51,7 +57,7 @@ router.get('/', (req, res) => {
         indexedPools: stats.poolCount,
         usedStaleFallback,
         periodSource,
-        ...(total === 0 ? { message: stats.lastRun ? 'Tidak ada posisi dengan aktivitas pada periode ini' : 'Index belum dijalankan' } : {}),
+        ...(total === 0 ? { message: emptyMessage(stats.lastRun) } : {}),
       },
     });
   } catch (error) {

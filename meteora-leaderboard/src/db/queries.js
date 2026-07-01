@@ -360,6 +360,17 @@ export function finishIndexRun(id, data) {
   );
 }
 
+export function markInterruptedIndexRuns() {
+  db.prepare(`
+    UPDATE index_runs
+    SET finished_at = ?,
+        status = 'interrupted',
+        error_message = COALESCE(error_message, 'Process restarted before index finished')
+    WHERE status = 'running'
+      AND finished_at IS NULL
+  `).run(Date.now());
+}
+
 export function getLastIndexRun() {
   return db.prepare('SELECT * FROM index_runs ORDER BY id DESC LIMIT 1').get() || null;
 }
