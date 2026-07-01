@@ -37,7 +37,11 @@ app.get('*', (req, res) => {
 });
 
 initDb();
-markInterruptedIndexRuns();
+try {
+  markInterruptedIndexRuns();
+} catch (error) {
+  console.warn('[indexer] failed to mark interrupted runs:', error instanceof Error ? error.message : error);
+}
 setupCron();
 
 app.listen(config.port, () => {
