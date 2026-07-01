@@ -86,6 +86,11 @@ export async function getSolPrice() {
   return prices.get(SOL_MINT) || 150;
 }
 
+export function getCachedSolPrice() {
+  const cached = cache.get(SOL_MINT);
+  return cached?.price || null;
+}
+
 export function isStablecoin(mint) {
   return STABLE_MINTS.has(String(mint || ''));
 }

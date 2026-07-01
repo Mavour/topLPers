@@ -1,5 +1,5 @@
 import express from 'express';
-import { getSolPrice } from '../api/price.js';
+import { getCachedSolPrice } from '../api/price.js';
 import { getStats } from '../db/queries.js';
 import { getIndexState } from '../indexer/indexRunner.js';
 
@@ -9,14 +9,10 @@ function iso(ts) {
   return ts ? new Date(ts).toISOString() : null;
 }
 
-router.get('/', async (req, res) => {
+router.get('/', (req, res) => {
   try {
     const state = getIndexState();
     const stats = getStats();
-    const solPrice = await Promise.race([
-      getSolPrice(),
-      new Promise((resolve) => setTimeout(() => resolve(null), 2500)),
-    ]);
     res.json({
       indexer: {
         isRunning: state.isRunning,
@@ -37,7 +33,7 @@ router.get('/', async (req, res) => {
         walletsFound: stats.lastRun.wallets_found,
         status: stats.lastRun.status,
       } : null,
-      solPrice,
+      solPrice: getCachedSolPrice(),
       uptime: process.uptime(),
     });
   } catch (error) {
