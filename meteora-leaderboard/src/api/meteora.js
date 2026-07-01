@@ -391,7 +391,6 @@ function isRemoveEvent(event) {
 function isFeeEvent(event) {
   const type = eventType(event);
   return ['claim_fee', 'claim_fees', 'fee_claim', 'fee_claimed', 'claim'].includes(type)
-    || type === 'swap'
     || (type.includes('fee') && type.includes('claim'));
 }
 
